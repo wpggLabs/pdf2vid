@@ -25,6 +25,7 @@ pub fn run() {
             commands::store_api_key,
             commands::list_providers,
             commands::list_models,
+            commands::is_model_installed,
             commands::download_model,
             commands::delete_model,
             commands::translate_text,

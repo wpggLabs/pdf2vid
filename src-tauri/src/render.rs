@@ -201,66 +201,14 @@ async fn run_export_inner(
         let voice_name = resolve_voice(&project, &script);
         let audio_path = audio_dir.join(format!("scene-{}.mp3", scene.id));
 
-        let result = match project.voice_provider.as_str() {
-            "edge" => {
-                let resp = edgetts::synthesize(edgetts::TtsRequest {
-                    text: script.clone(),
-                    voice: voice_name.clone(),
-                    rate: None,
-                    pitch: None,
-                })
-                .await?;
-                std::fs::write(&audio_path, base64::engine::general_purpose::STANDARD.decode(&resp.audio_base64).map_err(|e| e.to_string())?)
-                    .map_err(|e| e.to_string())?;
-                Ok(())
-            }
-            "piper" => {
-                let model_id = format!("piper-{}", project.voice);
-                let model_dir = if models::is_model_installed(&app, &model_id) {
-                    models::model_path(&app, &model_id)?
-                } else {
-                    return Err(format!(
-                        "Piper voice '{}' is not downloaded. Open Models to download it.",
-                        project.voice
-                    ));
-                };
-                let resp = cloud::piper_synthesize(
-                    &model_dir.to_string_lossy(),
-                    cloud::CloudSynthesisRequest {
-                        text: script.clone(),
-                        voice: voice_name.clone(),
-                    },
-                )
-                .await?;
-                std::fs::write(&audio_path, base64::engine::general_purpose::STANDARD.decode(&resp.audio_base64).map_err(|e| e.to_string())?)
-                    .map_err(|e| e.to_string())?;
-                Ok(())
-            }
-            "openai" => {
-                let key = read_api_key("openai")?;
-                let resp = cloud::openai_tts(&key, cloud::CloudSynthesisRequest {
-                    text: script.clone(),
-                    voice: voice_name.clone(),
-                })
-                .await?;
-                std::fs::write(&audio_path, base64::engine::general_purpose::STANDARD.decode(&resp.audio_base64).map_err(|e| e.to_string())?)
-                    .map_err(|e| e.to_string())?;
-                Ok(())
-            }
-            "elevenlabs" => {
-                let key = read_api_key("elevenlabs")?;
-                let voice_id = elevenlabs_voice_id(&voice_name);
-                let resp = cloud::elevenlabs_tts(&key, &voice_id, cloud::CloudSynthesisRequest {
-                    text: script.clone(),
-                    voice: voice_name.clone(),
-                })
-                .await?;
-                std::fs::write(&audio_path, base64::engine::general_purpose::STANDARD.decode(&resp.audio_base64).map_err(|e| e.to_string())?)
-                    .map_err(|e| e.to_string())?;
-                Ok(())
-            }
-            other => Err(format!("Voice provider '{}' is not yet implemented", other)),
-        };
+        let result = synthesize_scene_audio(
+            &app,
+            &project,
+            &script,
+            &voice_name,
+            &audio_path,
+        )
+        .await;
 
         result?;
         audio_paths.push((scene.id.clone(), audio_path));
@@ -517,6 +465,137 @@ fn read_api_key(provider: &str) -> Result<String, String> {
     entry
         .get_password()
         .map_err(|_| format!("No API key stored for {}. Open Settings to add one.", provider))
+}
+
+/// Synthesize one scene's audio with provider fallback.
+///
+/// Order of preference (configurable via `project.voiceProvider`):
+///   - `edge`     → edge-tts (free, Microsoft Neural, requires network)
+///   - `piper`    → local ONNX (offline after model download)
+///   - `openai`   → OpenAI TTS (BYO key)
+///   - `elevenlabs` → ElevenLabs (BYO key)
+///
+/// Fallback chain: the user's chosen provider is tried first; if it fails
+/// with a recoverable error, the next available provider is attempted.
+/// Only hard errors (missing API key, missing model, unimplemented stub)
+/// are surfaced immediately — transient failures fall through.
+async fn synthesize_scene_audio(
+    app: &tauri::AppHandle,
+    project: &Project,
+    text: &str,
+    voice_name: &str,
+    audio_path: &std::path::Path,
+) -> Result<(), String> {
+    let primary = project.voice_provider.as_str();
+    let mut attempts: Vec<&str> = vec![primary];
+
+    // Build the fallback chain. Free providers come first so a cloud key
+    // error never blocks the free path.
+    let mut fallback: Vec<&str> = Vec::new();
+    if primary != "edge" && !project.voice_provider.is_empty() {
+        fallback.push("edge");
+    }
+    if primary != "piper" && models::is_model_installed(app, "piper-en_US-amy") {
+        fallback.push("piper");
+    }
+    attempts.extend(fallback);
+
+    let mut last_err: Option<String> = None;
+    for provider in attempts {
+        match synthesize_with_provider(app, provider, project, text, voice_name, audio_path).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                let is_hard = e.starts_with("No API key")
+                    || e.contains("is not downloaded")
+                    || e.contains("not yet implemented")
+                    || e.contains("is required");
+                if is_hard && provider == primary {
+                    return Err(e);
+                }
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| "All voice providers failed".into()))
+}
+
+async fn synthesize_with_provider(
+    app: &tauri::AppHandle,
+    provider: &str,
+    project: &Project,
+    text: &str,
+    voice_name: &str,
+    audio_path: &std::path::Path,
+) -> Result<(), String> {
+    let audio_b64 = match provider {
+        "edge" => {
+            let resp = edgetts::synthesize(edgetts::TtsRequest {
+                text: text.to_string(),
+                voice: voice_name.to_string(),
+                rate: None,
+                pitch: None,
+            })
+            .await?;
+            resp.audio_base64
+        }
+        "piper" => {
+            let model_id = "piper-en_US-amy";
+            let model_dir = models::model_path(app, model_id)?;
+            let resp = cloud::piper_synthesize(
+                &model_dir.to_string_lossy(),
+                cloud::CloudSynthesisRequest {
+                    text: text.to_string(),
+                    voice: voice_name.to_string(),
+                },
+            )
+            .await?;
+            resp.audio_base64
+        }
+        "openai" => {
+            let key = read_api_key("openai")?;
+            let resp = cloud::openai_tts(
+                &key,
+                cloud::CloudSynthesisRequest {
+                    text: text.to_string(),
+                    voice: openai_voice_name(project),
+                },
+            )
+            .await?;
+            resp.audio_base64
+        }
+        "elevenlabs" => {
+            let key = read_api_key("elevenlabs")?;
+            let resp = cloud::elevenlabs_tts(
+                &key,
+                &elevenlabs_voice_id(voice_name),
+                cloud::CloudSynthesisRequest {
+                    text: text.to_string(),
+                    voice: voice_name.to_string(),
+                },
+            )
+            .await?;
+            resp.audio_base64
+        }
+        other => {
+            return Err(format!(
+                "Voice provider '{}' is not yet implemented",
+                other
+            ));
+        }
+    };
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(audio_b64.as_bytes())
+        .map_err(|e| e.to_string())?;
+    std::fs::write(audio_path, bytes).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn openai_voice_name(project: &Project) -> String {
+    match project.voice.as_str() {
+        "Amy · English (US)" => "shimmer".to_string(),
+        "Ryan · English (US)" => "onyx".to_string(),
+        _ => "alloy".to_string(),
+    }
 }
 
 #[cfg(test)]

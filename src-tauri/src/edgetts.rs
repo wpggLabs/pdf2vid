@@ -1,6 +1,9 @@
 use base64::Engine;
-use rand::Rng;
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtsRequest {
@@ -16,94 +19,130 @@ pub struct TtsResponse {
     pub format: String,
 }
 
-fn random_id() -> String {
-    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
-    let mut rng = rand::thread_rng();
-    (0..16)
-        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
-        .collect()
-}
+const WSS_URL: &str = "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?trustedclient=true&Authorization=";
 
-fn rfc_date() -> String {
-    use std::time::SystemTime;
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let _days = now / 86400;
-    let _years = 1970 + (_days / 365);
-    format!("{:?}", now)
-}
+pub async fn synthesize(req: TtsRequest) -> Result<TtsResponse, String> {
+    let rate = req.rate.unwrap_or_else(|| "+0%".into());
+    let pitch = req.pitch.unwrap_or_else(|| "+0Hz".into());
 
-pub async fn synthesize(request: TtsRequest) -> Result<TtsResponse, String> {
-    // Microsoft Edge TTS WebSocket endpoint
-    // wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1
-    //
-    // The protocol requires:
-    // 1. TLS upgrade with specific headers
-    // 2. Send SSML config + speech config as binary
-    // 3. Receive audio data back
-    //
-    // We implement a stripped-down version that produces PCM audio.
-    // Production-grade version would parse the full WebSocket frame format
-    // with turn-start, response, audio metadata headers.
-    //
-    // For now, we use the simpler REST synthesis endpoint via the public
-    // cognitive services speech endpoint which is accessible without auth
-    // for the readaloud endpoint through the standard Edge TTS pipeline.
-
+    // Step 1: Get the WebSocket auth token from the trusted client endpoint
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
+        .timeout(Duration::from_secs(30))
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36 Edg/127.0.0.0")
         .build()
         .map_err(|e| e.to_string())?;
 
-    // Use wss endpoint - implementation requires tokio-tungstenite which
-    // requires additional deps. For this build we use a fallback strategy:
-    // attempt WebSocket synthesis, fall back to a clear error message.
-    //
-    // NOTE: Microsoft periodically rotates the WSS endpoint URL and the
-    // protocol. This implementation targets the documented 2024 protocol
-    // and may need updates if Microsoft changes it.
+    let token_resp = client
+        .get("https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?trustedclient=true")
+        .header("Authority", "speech.platform.bing.com")
+        .header("Pragma", "no-cache")
+        .header("Cache-Control", "no-cache")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch edge-tts token: {e}"))?;
 
-    let _ = rfc_date();
-    let _ = random_id();
+    let token = token_resp
+        .headers()
+        .get("token")
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| "edge-tts token missing from response".to_string())?
+        .to_string();
 
-    match synthesize_websocket(&client, &request).await {
-        Ok(audio) => Ok(TtsResponse {
-            audio_base64: base64::engine::general_purpose::STANDARD.encode(&audio),
-            format: "audio-24khz-48kbitrate-mono-mp3".into(),
-        }),
-        Err(e) => Err(format!(
-            "edge-tts synthesis failed: {e}. Check network connectivity to *.api.cognitive.microsoft.com."
-        )),
+    // Step 2: Open WebSocket
+    let url = format!("{WSS_URL}{token}");
+    let mut ws_request = url.into_client_request().map_err(|e| e.to_string())?;
+    let headers = ws_request.headers_mut();
+    headers.insert("Pragma", "no-cache".parse().unwrap());
+    headers.insert("Cache-Control", "no-cache".parse().unwrap());
+    headers.insert(
+        "Origin",
+        "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold".parse().unwrap(),
+    );
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(ws_request)
+        .await
+        .map_err(|e| format!("edge-tts WebSocket connect failed: {e}"))?;
+
+    // Step 3: Send speech config
+    let config_id = format!("{}", uuid::Uuid::new_v4());
+    let now = chrono::Utc::now().format("%a %b %d %Y %H:%M:%S GMT+0000").to_string();
+    let config_msg = format!(
+        "X-Timestamp:{now}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{{\"context\":{{\"synthesis\":{{\"audio\":{{\"metadataoptions\":{{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"}},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}}}}}"
+    );
+    ws.send(Message::Text(config_msg))
+        .await
+        .map_err(|e| format!("edge-tts config send failed: {e}"))?;
+
+    // Step 4: Send SSML speak request
+    let ssml = format!(
+        "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'><voice name='{}'><prosody pitch='{}' rate='{}'>{}</prosody></voice></speak>",
+        req.voice,
+        pitch,
+        rate,
+        xml_escape(&req.text)
+    );
+    let speak_msg = format!(
+        "X-RequestId:{config_id}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:{now}\r\nPath:ssml\r\n\r\n{ssml}"
+    );
+    ws.send(Message::Text(speak_msg))
+        .await
+        .map_err(|e| format!("edge-tts speak send failed: {e}"))?;
+
+    // Step 5: Collect binary audio frames
+    let mut audio_bytes: Vec<u8> = Vec::new();
+    while let Some(msg) = ws.next().await {
+        let msg = msg.map_err(|e| format!("edge-tts WebSocket error: {e}"))?;
+        match msg {
+            Message::Binary(data) => {
+                if data.len() < 2 {
+                    continue;
+                }
+                let header_len = u16::from_be_bytes([data[0], data[1]]) as usize;
+                if data.len() < header_len + 2 {
+                    continue;
+                }
+                let header = String::from_utf8_lossy(&data[2..2 + header_len]).to_string();
+                let audio = &data[2 + header_len..];
+                if header.contains("Path:audio") {
+                    audio_bytes.extend_from_slice(audio);
+                }
+            }
+            Message::Text(text) => {
+                if text.contains("Path:turn.end") {
+                    break;
+                }
+            }
+            Message::Close(_) => break,
+            _ => {}
+        }
     }
+    let _ = ws.close(None).await;
+
+    if audio_bytes.is_empty() {
+        return Err("edge-tts returned no audio data".into());
+    }
+
+    Ok(TtsResponse {
+        audio_base64: base64::engine::general_purpose::STANDARD.encode(&audio_bytes),
+        format: "audio-24khz-48kbitrate-mono-mp3".into(),
+    })
 }
 
-async fn synthesize_websocket(
-    _client: &reqwest::Client,
-    request: &TtsRequest,
-) -> Result<Vec<u8>, String> {
-    // Implementation note:
-    // The full Microsoft Edge TTS WebSocket protocol requires:
-    // 1. WSS handshake with Sec-WebSocket-Protocol: 'speak' or similar
-    // 2. SpeechConfig message with voice metadata
-    // 3. SSML speech message
-    // 4. Audio metadata + binary frames containing MP3 chunks
-    //
-    // For the initial implementation we surface a clear error.
-    // In production builds, this would integrate tokio-tungstenite
-    // with the protocol implementation.
-    //
-    // See: https://github.com/rany2/edge-tts (Python reference impl)
-    //
-    // Architecture supports swapping this implementation later
-    // without changing the Provider trait or the render pipeline.
+fn xml_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
 
-    Err(format!(
-        "WebSocket synthesis pipeline not yet built for voice '{}'. \
-         This is an architecture placeholder — see edgetts.rs for the \
-         integration point. Voice was requested: {}",
-        request.voice, request.text
-    ))
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn xml_escapes_specials() {
+        assert_eq!(xml_escape("a < b & c"), "a &lt; b &amp; c");
+        assert_eq!(xml_escape("say \"hi\""), "say &quot;hi&quot;");
+    }
 }

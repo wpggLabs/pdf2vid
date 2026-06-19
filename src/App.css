@@ -66,3 +66,26 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .progress-done,.progress-error{padding:18px 14px;display:flex;flex-direction:column;gap:10px;font-size:12px;line-height:1.5}
 .progress-done code{background:#14171b;padding:1px 6px;border-radius:3px;font-size:10px}
 .progress-error{color:#ff9b9b}
+.status-dot.warn{background:#d4a64f;box-shadow:0 0 6px #d4a64f66}
+.status-dot.ready{background:var(--green)}
+
+.import-progress{padding:0 14px 10px;display:flex;flex-direction:column;gap:6px;font-size:10px;color:var(--muted)}
+.import-progress-bar{height:3px;background:#2c3038;border-radius:2px;overflow:hidden}
+.import-progress-bar-fill{height:100%;background:var(--blue);transition:width .2s}
+
+.preview-error{margin:0 14px;padding:8px 10px;background:#3a1a1a;color:#ff9b9b;border:1px solid #5a2c2c;border-radius:4px;font-size:11px;line-height:1.4}
+
+.subtitles-view{padding:12px 14px;overflow:auto;border-bottom:1px solid var(--line);max-height:200px}
+.subtitle-list{display:flex;flex-direction:column;gap:6px}
+.subtitle-row{display:grid;grid-template-columns:24px 56px 1fr;align-items:center;gap:8px;padding:7px 10px;background:#181b1f;border:1px solid var(--line);border-radius:4px}
+.subtitle-index{font:10px "IBM Plex Mono";color:var(--muted);text-align:center}
+.subtitle-time{font:10px "IBM Plex Mono";color:#8c929d}
+.subtitle-row p{margin:0;font-size:11px;line-height:1.35;color:#d9dce1;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.subtitle-empty{color:var(--muted);font-size:11px;text-align:center;padding:18px 0}
+
+.scene-meta-panel{padding:10px 14px;display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--line)}
+.scene-meta-panel input[type="text"],.scene-meta-panel input[type="number"]{border:1px solid #343943;background:#23272e;color:#dfe2e7;border-radius:4px;padding:7px 9px;font-size:12px;width:100%}
+.scene-meta-panel label.check-row{margin:0}
+.status-action{margin-left:8px;border:1px solid #2c4a78;background:#1d3057;color:#7ca9ef;padding:3px 9px;border-radius:3px;font-size:10px;cursor:pointer}
+.status-action:hover:not(:disabled){background:#243d6e;border-color:#3a5a8a}
+.status-action:disabled{opacity:.5;cursor:not-allowed}

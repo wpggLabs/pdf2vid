@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowsOut, Check, Export, FilePdf, Gear, List, Pause,
   Play, Plus, SkipBack, SkipForward, SpeakerHigh, Trash, Waveform,
@@ -12,6 +12,9 @@ import { ProgressModal } from "./components/ProgressModal";
 import {
   getProviderList, getSystemStatus, loadProject, saveProject, startExport as backendExport,
 } from "./backend";
+import { usePreviewVoice } from "./hooks/usePreviewVoice";
+import { useTimelinePlayback } from "./hooks/useTimelinePlayback";
+import { useTranslationModelPrompt } from "./hooks/useTranslationModelPrompt";
 import type { ProviderOption } from "./types";
 import type { Scene, Project, SystemStatus } from "./types";
 import type { ProviderList } from "./api";
@@ -45,12 +48,15 @@ function providerById(options: ProviderOption[], id: string) {
   return options.find((option) => option.id === id) ?? options[0];
 }
 
+type WorkspaceTab = "scenes" | "preview" | "export";
+type TimelineTab = "timeline" | "subtitles";
+type InspectorTab = "script" | "scene";
+
 function App() {
   const [project, setProject] = useState<Project>(defaultProject);
   const [providers, setProviders] = useState<ProviderList | null>(null);
   const [activeId, setActiveId] = useState(project.scenes[0].id);
   const [aspect, setAspect] = useState<"youtube" | "tiktok">("youtube");
-  const [playing, setPlaying] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -59,8 +65,15 @@ function App() {
   const [system, setSystem] = useState<SystemStatus>({
     ffmpeg: false, ffprobe: false, platform: "Browser preview", ffmpegSidecarReady: false,
   });
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("scenes");
+  const [timelineTab, setTimelineTab] = useState<TimelineTab>("timeline");
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("script");
+  const [importProgress, setImportProgress] = useState<{ page: number; total: number } | null>(null);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const saveTimer = useRef<number | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const importAbort = useRef<AbortController | null>(null);
 
   const active = project.scenes.find((scene) => scene.id === activeId) ?? project.scenes[0];
   const duration = useMemo(
@@ -71,7 +84,21 @@ function App() {
     [project.scenes],
   );
 
-  // Initial load
+  const playback = useTimelinePlayback(project.scenes);
+  const preview = usePreviewVoice();
+
+  // Pass-through setter for status messages from the translation model prompt.
+  const setStatusFromPrompt = useCallback(
+    (message: string) => setStatus(message),
+    [],
+  );
+  const modelPrompt = useTranslationModelPrompt(
+    project.translationProvider,
+    project.language,
+    setStatusFromPrompt,
+  );
+
+  // Initial load + system status
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -103,7 +130,25 @@ function App() {
     };
   }, []);
 
-  // Debounced auto-save
+  // Refresh system status on window focus so installing FFmpeg while the app is open gets picked up
+  useEffect(() => {
+    const refresh = () => {
+      getSystemStatus()
+        .then((s) => {
+          setSystem(s);
+          if (s.ffmpeg || s.ffmpegSidecarReady) {
+            setStatus((prev) =>
+              prev.includes("FFmpeg") ? "Ready" : prev,
+            );
+          }
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, []);
+
+  // Debounced auto-save; flush on unmount
   useEffect(() => {
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
@@ -114,12 +159,32 @@ function App() {
     };
   }, [project]);
 
+  // Flush save on unmount
+  useEffect(() => {
+    return () => {
+      // Best-effort sync save when component unmounts
+      const json = JSON.stringify(project);
+      try {
+        navigator.sendBeacon?.("/save-project", json);
+      } catch {
+        // ignore
+      }
+    };
+  }, [project]);
+
   async function importPdf(file?: File) {
     if (!file) return;
+    importAbort.current = new AbortController();
     setStatus("Reading PDF…");
+    setImportProgress({ page: 0, total: 0 });
     try {
-      const scenes = await parsePdf(file, (page, total) =>
-        setStatus(`Reading page ${page} of ${total}`),
+      const scenes = await parsePdf(
+        file,
+        (page, total) => {
+          setStatus(`Reading page ${page} of ${total}`);
+          setImportProgress({ page, total });
+        },
+        importAbort.current.signal,
       );
       const name = file.name.replace(/\.pdf$/i, "");
       setProject((current) => ({ ...current, name, sourceName: file.name, scenes }));
@@ -127,6 +192,9 @@ function App() {
       setStatus(`${scenes.length} pages imported`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not read this PDF");
+    } finally {
+      setImportProgress(null);
+      importAbort.current = null;
     }
   }
 
@@ -162,12 +230,57 @@ function App() {
     }
   }
 
+  // Skip back / forward = previous / next selected scene
+  const selectedScenes = useMemo(
+    () => project.scenes.filter((s) => s.selected),
+    [project.scenes],
+  );
+  const selectedIndex = selectedScenes.findIndex((s) => s.id === activeId);
+
+  const skipBack = useCallback(() => {
+    const prev = selectedScenes[Math.max(0, selectedIndex - 1)];
+    if (prev) setActiveId(prev.id);
+  }, [selectedIndex, selectedScenes]);
+
+  const skipForward = useCallback(() => {
+    const next = selectedScenes[Math.min(selectedScenes.length - 1, selectedIndex + 1)];
+    if (next) setActiveId(next.id);
+  }, [selectedIndex, selectedScenes]);
+
+  // Play / pause the timeline simulation
+  const togglePlay = useCallback(() => {
+    if (playback.playing) playback.pause();
+    else playback.play();
+  }, [playback]);
+
+  // Preview voice (active scene's script)
+  const handlePreviewVoice = useCallback(() => {
+    preview.preview(project.voiceProvider, project.voice, active.script);
+  }, [preview, project.voiceProvider, project.voice, active.script]);
+
+  // Fullscreen toggle
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => undefined);
+    } else {
+      document.exitFullscreen?.().catch(() => undefined);
+    }
+  }, []);
+
+  // Switch to Preview workspace tab and scroll into view
+  const openPreview = useCallback(() => {
+    setWorkspaceTab("preview");
+    setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+  }, []);
+
   const translationProvider = providers
     ? providerById(providers.translation, project.translationProvider)
     : null;
   const voiceProvider = providers
     ? providerById(providers.voice, project.voiceProvider)
     : null;
+
+  const totalDuration = duration;
 
   return (
     <main className="app-shell">
@@ -177,9 +290,21 @@ function App() {
           <span>Projects</span><b>/</b><strong>{project.name}</strong>
         </div>
         <nav aria-label="Workspace">
-          <button className="nav-active"><List size={18} />Scenes</button>
-          <button><Play size={18} />Preview</button>
-          <button onClick={() => setExportOpen(true)}><Export size={18} />Export</button>
+          <button
+            className={workspaceTab === "scenes" ? "nav-active" : ""}
+            onClick={() => setWorkspaceTab("scenes")}
+          >
+            <List size={18} />Scenes
+          </button>
+          <button
+            className={workspaceTab === "preview" ? "nav-active" : ""}
+            onClick={openPreview}
+          >
+            <Play size={18} />Preview
+          </button>
+          <button onClick={() => setExportOpen(true)}>
+            <Export size={18} />Export
+          </button>
         </nav>
         <button
           className="icon-button"
@@ -215,6 +340,17 @@ function App() {
           <button className="import-button" onClick={() => inputRef.current?.click()}>
             <FilePdf size={20} />Import PDF
           </button>
+          {importProgress && (
+            <div className="import-progress">
+              <span>Reading page {importProgress.page} of {importProgress.total}</span>
+              <div className="import-progress-bar">
+                <div
+                  className="import-progress-bar-fill"
+                  style={{ width: `${(importProgress.page / importProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
           <div className="scene-label">
             <span>SCENES</span>
             <span>
@@ -256,7 +392,7 @@ function App() {
           </footer>
         </aside>
 
-        <section className="editor">
+        <section className="editor" ref={previewRef as unknown as React.RefObject<HTMLElement>}>
           <div className="preview-toolbar">
             <select
               value={aspect}
@@ -265,7 +401,9 @@ function App() {
               <option value="youtube">YouTube · 1920×1080</option>
               <option value="tiktok">TikTok · 1080×1920</option>
             </select>
-            <button className="icon-button"><ArrowsOut size={18} /></button>
+            <button className="icon-button" onClick={toggleFullscreen} aria-label="Fullscreen">
+              <ArrowsOut size={18} />
+            </button>
           </div>
           <div className={`preview-stage ${aspect}`}>
             <div className="paper-preview">
@@ -281,61 +419,99 @@ function App() {
             </div>
           </div>
           <div className="transport">
-            <span>00:00</span>
+            <span>{seconds(playback.totalElapsed)}</span>
             <div className="transport-actions">
-              <button><SkipBack weight="fill" /></button>
-              <button className="play" onClick={() => setPlaying((value) => !value)}>
-                {playing ? <Pause weight="fill" /> : <Play weight="fill" />}
+              <button onClick={skipBack} aria-label="Previous scene">
+                <SkipBack weight="fill" />
               </button>
-              <button><SkipForward weight="fill" /></button>
+              <button className="play" onClick={togglePlay} aria-label={playback.playing ? "Pause" : "Play"}>
+                {playback.playing ? <Pause weight="fill" /> : <Play weight="fill" />}
+              </button>
+              <button onClick={skipForward} aria-label="Next scene">
+                <SkipForward weight="fill" />
+              </button>
             </div>
-            <span>{seconds(active.duration)}</span>
+            <span>{seconds(totalDuration)}</span>
             <SpeakerHigh size={18} />
           </div>
           <div className="timeline-tabs">
-            <button className="active">TIMELINE</button>
-            <button>SUBTITLES</button>
+            <button
+              className={timelineTab === "timeline" ? "active" : ""}
+              onClick={() => setTimelineTab("timeline")}
+            >
+              TIMELINE
+            </button>
+            <button
+              className={timelineTab === "subtitles" ? "active" : ""}
+              onClick={() => setTimelineTab("subtitles")}
+            >
+              SUBTITLES
+            </button>
           </div>
-          <div className="timeline">
-            <div className="time-ruler">
-              <span>0:00</span>
-              <span>{seconds(Math.round(duration / 2))}</span>
-              <span>{seconds(duration)}</span>
-            </div>
-            <div className="clip-track">
-              {project.scenes.map((scene, index) => (
-                <button
-                  key={scene.id}
-                  className={scene.id === activeId ? "active" : ""}
-                  style={{ flex: scene.duration }}
-                  onClick={() => setActiveId(scene.id)}
-                >
-                  <b>{index + 1}</b>
-                  <span>{seconds(scene.duration)}</span>
-                </button>
-              ))}
-            </div>
-            <div className="audio-track">
-              <Waveform size={17} />
-              <div>
-                {Array.from({ length: 58 }, (_, index) => (
-                  <i key={index} style={{ height: `${18 + ((index * 13) % 30)}%` }} />
+          {timelineTab === "timeline" ? (
+            <div className="timeline">
+              <div className="time-ruler">
+                <span>0:00</span>
+                <span>{seconds(Math.round(duration / 2))}</span>
+                <span>{seconds(duration)}</span>
+              </div>
+              <div className="clip-track">
+                {project.scenes.map((scene, index) => (
+                  <button
+                    key={scene.id}
+                    className={scene.id === activeId ? "active" : ""}
+                    style={{ flex: scene.duration }}
+                    onClick={() => setActiveId(scene.id)}
+                  >
+                    <b>{index + 1}</b>
+                    <span>{seconds(scene.duration)}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="audio-track">
+                <Waveform size={17} />
+                <div>
+                  {Array.from({ length: 58 }, (_, index) => (
+                    <i key={index} style={{ height: `${18 + ((index * 13) % 30)}%` }} />
+                  ))}
+                </div>
+              </div>
+              <div className="subtitle-track">
+                <span>CC</span>
+                {project.scenes.map((scene) => (
+                  <button
+                    key={scene.id}
+                    style={{ flex: scene.duration }}
+                    onClick={() => setActiveId(scene.id)}
+                  >
+                    {scene.script}
+                  </button>
                 ))}
               </div>
             </div>
-            <div className="subtitle-track">
-              <span>CC</span>
-              {project.scenes.map((scene) => (
-                <button
-                  key={scene.id}
-                  style={{ flex: scene.duration }}
-                  onClick={() => setActiveId(scene.id)}
-                >
-                  {scene.script}
-                </button>
-              ))}
+          ) : (
+            <div className="subtitles-view">
+              <div className="subtitle-list">
+                {project.scenes.filter((s) => s.selected).map((scene, i) => (
+                  <article key={scene.id} className="subtitle-row">
+                    <span className="subtitle-index">{i + 1}</span>
+                    <span className="subtitle-time">
+                      {seconds(
+                        project.scenes
+                          .filter((s) => s.selected)
+                          .slice(0, i)
+                          .reduce((sum, s) => sum + s.duration, 0),
+                      )}
+                    </span>
+                    <p>{scene.script}</p>
+                  </article>
+                ))}
+                {project.scenes.filter((s) => s.selected).length === 0 && (
+                  <p className="subtitle-empty">Select scenes to populate subtitles.</p>
+                )}
+              </div>
             </div>
-          </div>
+          )}
           <div className="script-editor">
             <div>
               <span>SCENE SCRIPT</span>
@@ -358,8 +534,18 @@ function App() {
 
         <aside className="inspector">
           <div className="inspector-tabs">
-            <button className="active">SCRIPT</button>
-            <button>SCENE</button>
+            <button
+              className={inspectorTab === "script" ? "active" : ""}
+              onClick={() => setInspectorTab("script")}
+            >
+              SCRIPT
+            </button>
+            <button
+              className={inspectorTab === "scene" ? "active" : ""}
+              onClick={() => setInspectorTab("scene")}
+            >
+              SCENE
+            </button>
           </div>
           {providers ? (
             <>
@@ -371,9 +557,9 @@ function App() {
                     setProject((current) => ({ ...current, language: event.target.value }))
                   }
                 >
-                  {providers.languages.map((language: string) => (
-                  <option key={language}>{language}</option>
-                ))}
+                  {providers.languages.map((language) => (
+                    <option key={language}>{language}</option>
+                  ))}
                 </select>
               </label>
               {providers.translation.length > 0 && (
@@ -433,7 +619,15 @@ function App() {
                   {voiceOptionsFor(project)}
                 </select>
               </label>
-              <button className="preview-voice"><Play size={15} weight="fill" />Preview voice</button>
+              <button
+                className="preview-voice"
+                onClick={handlePreviewVoice}
+                disabled={preview.loading}
+              >
+                <Play size={15} weight="fill" />
+                {preview.loading ? "Generating…" : "Preview voice"}
+              </button>
+              {preview.error && <p className="preview-error">{preview.error}</p>}
               <div className="slider-row">
                 <span>Speed</span>
                 <input type="range" min="75" max="125" defaultValue="100" />
@@ -449,6 +643,42 @@ function App() {
             </>
           ) : (
             <div className="inspector-loading">Loading providers…</div>
+          )}
+          {inspectorTab === "scene" && (
+            <div className="scene-meta-panel">
+              <label>
+                PAGE TITLE
+                <input
+                  type="text"
+                  value={active.title}
+                  onChange={(event) => updateScene(active.id, { title: event.target.value })}
+                />
+              </label>
+              <label>
+                DURATION (seconds)
+                <input
+                  type="number"
+                  min="1"
+                  value={active.duration}
+                  onChange={(event) =>
+                    updateScene(active.id, { duration: Math.max(1, Number(event.target.value)) })
+                  }
+                />
+              </label>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={active.selected}
+                  onChange={(event) =>
+                    updateScene(active.id, { selected: event.target.checked })
+                  }
+                />
+                <div>
+                  <strong>Include this scene</strong>
+                  <span>Selected scenes render in the final video</span>
+                </div>
+              </label>
+            </div>
           )}
           <div className="export-section">
             <span>EXPORT VIDEO</span>
@@ -486,8 +716,17 @@ function App() {
       </section>
 
       <footer className="statusbar">
-        <span className="status-dot" />
+        <span className={`status-dot ${system.ffmpeg || system.ffmpegSidecarReady ? "ready" : "warn"}`} />
         <span>{status}</span>
+        {modelPrompt.neededModelId && (
+          <button
+            className="status-action"
+            onClick={() => modelPrompt.triggerDownload(modelPrompt.neededModelId!)}
+            disabled={modelPrompt.downloading}
+          >
+            {modelPrompt.downloading ? "Downloading…" : "Download model"}
+          </button>
+        )}
         <span className="system-status">
           {system.platform} · FFmpeg {system.ffmpeg || system.ffmpegSidecarReady ? "ready" : "not found"}
         </span>

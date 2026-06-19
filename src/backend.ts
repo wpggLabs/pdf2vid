@@ -108,3 +108,7 @@ export async function onModelComplete(
     handler(event.payload),
   );
 }
+
+export function isModelInstalled(modelId: string): Promise<boolean> {
+  return invoke("is_model_installed", { modelId });
+}

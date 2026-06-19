@@ -68,6 +68,11 @@ pub fn list_providers() -> ProviderList {
 }
 
 #[tauri::command]
+pub fn is_model_installed(app: AppHandle, model_id: String) -> bool {
+    crate::models::is_model_installed(&app, &model_id)
+}
+
+#[tauri::command]
 pub fn list_models(app: AppHandle) -> Vec<ModelInfo> {
     models::list_models(&app)
 }
