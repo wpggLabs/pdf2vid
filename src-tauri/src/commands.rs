@@ -72,6 +72,15 @@ pub fn is_model_installed(app: AppHandle, model_id: String) -> bool {
     crate::models::is_model_installed(&app, &model_id)
 }
 
+/// Read a PDF file from disk and return its bytes. Frontend uses this for
+/// large PDFs that would be slow or memory-heavy to load via the browser
+/// file input.
+#[tauri::command]
+pub fn read_pdf_file(path: String) -> Result<Vec<u8>, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
+    Ok(bytes)
+}
+
 #[tauri::command]
 pub fn list_models(app: AppHandle) -> Vec<ModelInfo> {
     models::list_models(&app)

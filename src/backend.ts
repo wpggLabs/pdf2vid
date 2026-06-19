@@ -112,3 +112,7 @@ export async function onModelComplete(
 export function isModelInstalled(modelId: string): Promise<boolean> {
   return invoke("is_model_installed", { modelId });
 }
+
+export function readPdfFile(path: string): Promise<number[]> {
+  return invoke<number[]>("read_pdf_file", { path });
+}

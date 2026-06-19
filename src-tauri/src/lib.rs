@@ -26,6 +26,7 @@ pub fn run() {
             commands::list_providers,
             commands::list_models,
             commands::is_model_installed,
+            commands::read_pdf_file,
             commands::download_model,
             commands::delete_model,
             commands::translate_text,

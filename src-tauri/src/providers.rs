@@ -47,9 +47,9 @@ pub fn provider_list() -> ProviderList {
         voice: vec![
             ProviderOption {
                 id: "edge".into(),
-                label: "edge-tts".into(),
+                label: "Free TTS".into(),
                 kind: ProviderKind::Local,
-                detail: "Free · Microsoft Neural · Uses Microsoft online synthesis".into(),
+                detail: "Free · StreamElements (English) + Google TTS (other languages)".into(),
                 implemented: true,
                 online: true,
                 key_label: None,
@@ -197,6 +197,20 @@ mod tests {
     #[test]
     fn voice_provider_for_chinese_is_xiaoxiao() {
         assert_eq!(edge_voice_for_language("Chinese (Simplified)"), "zh-CN-XiaoxiaoNeural");
+    }
+
+    #[test]
+    fn free_voice_label_is_honest() {
+        let list = provider_list();
+        let free = list.voice.iter().find(|p| p.id == "edge").unwrap();
+        assert!(
+            !free.detail.contains("Microsoft Neural"),
+            "Provider description should not claim Microsoft Neural (edge-tts is no longer used)"
+        );
+        assert!(
+            free.detail.contains("Free"),
+            "Default voice should be marked free"
+        );
     }
 
     #[test]

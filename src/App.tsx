@@ -15,6 +15,8 @@ import {
 import { usePreviewVoice } from "./hooks/usePreviewVoice";
 import { useTimelinePlayback } from "./hooks/useTimelinePlayback";
 import { useTranslationModelPrompt } from "./hooks/useTranslationModelPrompt";
+import { PreviewModal } from "./components/PreviewModal";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { ProviderOption } from "./types";
 import type { Scene, Project, SystemStatus } from "./types";
 import type { ProviderList } from "./api";
@@ -69,6 +71,7 @@ function App() {
   const [timelineTab, setTimelineTab] = useState<TimelineTab>("timeline");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("script");
   const [importProgress, setImportProgress] = useState<{ page: number; total: number } | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const saveTimer = useRef<number | null>(null);
@@ -179,7 +182,7 @@ function App() {
     setImportProgress({ page: 0, total: 0 });
     try {
       const scenes = await parsePdf(
-        file,
+        { kind: "file", file },
         (page, total) => {
           setStatus(`Reading page ${page} of ${total}`);
           setImportProgress({ page, total });
@@ -195,6 +198,44 @@ function App() {
     } finally {
       setImportProgress(null);
       importAbort.current = null;
+    }
+  }
+
+  async function importPdfFromPath(path: string) {
+    importAbort.current = new AbortController();
+    setStatus("Reading PDF…");
+    setImportProgress({ page: 0, total: 0 });
+    try {
+      const scenes = await parsePdf(
+        { kind: "path", path },
+        (page, total) => {
+          setStatus(`Reading page ${page} of ${total}`);
+          setImportProgress({ page, total });
+        },
+        importAbort.current.signal,
+      );
+      const name = path.split(/[\\/]/).pop()?.replace(/\.pdf$/i, "") ?? "Untitled";
+      setProject((current) => ({ ...current, name, sourceName: path, scenes }));
+      setActiveId(scenes[0].id);
+      setStatus(`${scenes.length} pages imported`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not read this PDF");
+    } finally {
+      setImportProgress(null);
+      importAbort.current = null;
+    }
+  }
+
+  async function pickAndImportPdf() {
+    try {
+      const picked = await openDialog({
+        multiple: false,
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+      if (!picked || typeof picked !== "string") return;
+      await importPdfFromPath(picked);
+    } catch (e) {
+      setStatus(`File picker failed: ${e}`);
     }
   }
 
@@ -249,9 +290,15 @@ function App() {
 
   // Play / pause the timeline simulation
   const togglePlay = useCallback(() => {
-    if (playback.playing) playback.pause();
-    else playback.play();
-  }, [playback]);
+    if (playback.playing) {
+      playback.pause();
+    } else {
+      playback.play();
+      // Kick off audio for the currently active scene so the user
+      // actually hears something when they hit Play.
+      preview.preview(project.voiceProvider, project.voice, active.script).catch(() => undefined);
+    }
+  }, [playback, preview, project.voiceProvider, project.voice, active.script]);
 
   // Preview voice (active scene's script)
   const handlePreviewVoice = useCallback(() => {
@@ -267,10 +314,9 @@ function App() {
     }
   }, []);
 
-  // Switch to Preview workspace tab and scroll into view
+  // Switch to Preview workspace tab and open the preview modal
   const openPreview = useCallback(() => {
-    setWorkspaceTab("preview");
-    setTimeout(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    setPreviewOpen(true);
   }, []);
 
   const translationProvider = providers
@@ -337,7 +383,7 @@ function App() {
             hidden
             onChange={(event) => importPdf(event.target.files?.[0])}
           />
-          <button className="import-button" onClick={() => inputRef.current?.click()}>
+          <button className="import-button" onClick={pickAndImportPdf}>
             <FilePdf size={20} />Import PDF
           </button>
           {importProgress && (
@@ -601,7 +647,7 @@ function App() {
                   <span>
                     {voiceProvider.kind === "local"
                       ? voiceProvider.online
-                        ? "Free · uses Microsoft online synthesis"
+                        ? "Free · uses online synthesis (StreamElements / Google)"
                         : "Runs on this device"
                       : "Uses your account"}
                   </span>
@@ -755,6 +801,16 @@ function App() {
       )}
       {progressJobId && (
         <ProgressModal jobId={progressJobId} onClose={() => setProgressJobId(null)} />
+      )}
+      {previewOpen && (
+        <PreviewModal
+          onClose={() => setPreviewOpen(false)}
+          scene={active}
+          voiceProvider={project.voiceProvider}
+          voice={project.voice}
+          scenes={project.scenes}
+          onSceneChange={setActiveId}
+        />
       )}
     </main>
   );

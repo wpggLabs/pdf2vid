@@ -397,6 +397,16 @@ fn compose_video(
     cmd.args(["-movflags", "+faststart"]);
     cmd.arg(output);
 
+    // On Windows, std::process::Command spawns a console window by default
+    // unless the parent has one. Use CREATE_NO_WINDOW so FFmpeg doesn't
+    // flash a cmd window at the user during export.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
     let output = cmd
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

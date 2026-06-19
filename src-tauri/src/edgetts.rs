@@ -1,10 +1,6 @@
 use base64::Engine;
-use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::tungstenite::Message;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtsRequest {
@@ -20,35 +16,174 @@ pub struct TtsResponse {
     pub format: String,
 }
 
-// Public trusted-client token used by Edge browser and reverse-engineered clients.
-// Microsoft's protocol accepts this token when paired with a valid Sec-MS-GEC value.
-const TRUSTED_CLIENT_TOKEN: &str = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
-
-// Edge Chromium version string used to mint Sec-MS-GEC-Version. This is a fixed
-// stable value — Microsoft accepts a range of recent versions.
-const SEC_MS_GEC_VERSION: &str = "1-130.0.2849.68";
-
-/// Generate the Sec-MS-GEC token required by the current edge-tts protocol.
+/// Synthesize narration audio for a scene.
 ///
-/// Algorithm (matches the Python `edge-tts` reference implementation):
-///   1. Take current Unix time in milliseconds.
-///   2. Round down to the nearest 5-minute window (`ticks = ms / 300_000`).
-///   3. Hash: `SHA256(str(ticks) + trusted_client_token)`.
-///   4. Base64-encode the digest.
-///   5. URL-encode the result for use in the WSS query string.
-fn generate_sec_ms_gec() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let ticks = now / 300_000;
-    let input = format!("{}{}", ticks, TRUSTED_CLIENT_TOKEN);
-    let mut hasher = Sha256::new();
-    hasher.update(input.as_bytes());
-    let digest = hasher.finalize();
-    let b64 = base64::engine::general_purpose::STANDARD.encode(digest);
-    // URL-encode so it can be safely used as a query parameter value.
-    url_encode(&b64)
+/// Backend selection:
+///   - English voices: StreamElements TTS (free, public, Amazon Polly voices
+///     under the hood, returns MP3, no auth needed).
+///   - Non-English voices: Google Translate TTS (free, public, no auth,
+///     works in 100+ languages, lower quality but reliable).
+///
+/// Both endpoints are public anonymous APIs that have worked for years.
+/// We avoid Microsoft's edge-tts reverse-engineered WebSocket protocol
+/// because Microsoft rotates tokens/versions frequently, which makes it
+/// fragile to maintain.
+pub async fn synthesize(req: TtsRequest) -> Result<TtsResponse, String> {
+    let lang = voice_to_language(&req.voice);
+
+    if lang == "en" {
+        // Try StreamElements first (better English quality).
+        match streamelements_synthesize(&req).await {
+            Ok(resp) => return Ok(resp),
+            Err(e) => {
+                log::warn!("StreamElements failed ({e}), falling back to Google TTS");
+            }
+        }
+    }
+
+    // Google Translate TTS for non-English or as fallback.
+    google_translate_synthesize(&req, &lang).await
+}
+
+fn voice_to_language(voice: &str) -> String {
+    // Microsoft voice short name -> Google TTS language code.
+    // Falls back to "en" for unknown voices.
+    if voice.starts_with("en-") { return "en".into(); }
+    if voice.starts_with("es-") { return "es".into(); }
+    if voice.starts_with("fr-") { return "fr".into(); }
+    if voice.starts_with("de-") { return "de".into(); }
+    if voice.starts_with("pt-") { return "pt".into(); }
+    if voice.starts_with("hi-") { return "hi".into(); }
+    if voice.starts_with("ja-") { return "ja".into(); }
+    if voice.starts_with("ko-") { return "ko".into(); }
+    if voice.starts_with("zh-") { return "zh-CN".into(); }
+    if voice.starts_with("ar-") { return "ar".into(); }
+    "en".into()
+}
+
+fn voice_to_streamelements(voice: &str) -> &'static str {
+    // Map Microsoft voice names to StreamElements voice IDs.
+    // StreamElements exposes Amazon Polly voices under friendly names.
+    match voice {
+        "en-US-JennyNeural" => "Amy",
+        "en-US-GuyNeural" => "Brian",
+        _ => "Amy",
+    }
+}
+
+async fn streamelements_synthesize(req: &TtsRequest) -> Result<TtsResponse, String> {
+    let voice = voice_to_streamelements(&req.voice);
+    let encoded = url_encode(&req.text);
+    let url = format!(
+        "https://api.streamelements.com/kappa/v2/speech?voice={}&text={}",
+        voice, encoded
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client.get(&url).send().await.map_err(|e| {
+        format!("StreamElements request failed: {e}")
+    })?;
+
+    if !resp.status().is_success() {
+        return Err(format!(
+            "StreamElements returned HTTP {}",
+            resp.status()
+        ));
+    }
+
+    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    if bytes.is_empty() {
+        return Err("StreamElements returned no audio".into());
+    }
+
+    Ok(TtsResponse {
+        audio_base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
+        format: "audio/mpeg".into(),
+    })
+}
+
+async fn google_translate_synthesize(req: &TtsRequest, lang: &str) -> Result<TtsResponse, String> {
+    // Google Translate's anonymous TTS endpoint. Long text may need to be
+    // split into <=200 char chunks because Google limits single requests.
+    let chunks = chunk_text(&req.text, 200);
+    let mut combined: Vec<u8> = Vec::new();
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    for chunk in chunks {
+        let encoded = url_encode(&chunk);
+        let url = format!(
+            "https://translate.google.com/translate_tts?ie=UTF-8&q={}&tl={}&client=tw-ob",
+            encoded, lang
+        );
+        let resp = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("Google TTS request failed: {e}"))?;
+        if !resp.status().is_success() {
+            return Err(format!(
+                "Google TTS returned HTTP {} for chunk",
+                resp.status()
+            ));
+        }
+        let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+        combined.extend_from_slice(&bytes);
+    }
+
+    if combined.is_empty() {
+        return Err("Google TTS returned no audio".into());
+    }
+
+    Ok(TtsResponse {
+        audio_base64: base64::engine::general_purpose::STANDARD.encode(&combined),
+        format: "audio/mpeg".into(),
+    })
+}
+
+fn chunk_text(text: &str, max_chars: usize) -> Vec<String> {
+    if text.chars().count() <= max_chars {
+        return vec![text.to_string()];
+    }
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if current.chars().count() + word.chars().count() + 1 > max_chars {
+            if !current.is_empty() {
+                chunks.push(std::mem::take(&mut current));
+            }
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    // If a single word exceeds max_chars (rare), hard-split it.
+    let mut out = Vec::new();
+    for chunk in chunks {
+        if chunk.chars().count() <= max_chars {
+            out.push(chunk);
+        } else {
+            for slice in chunk.as_bytes().chunks(max_chars) {
+                if let Ok(s) = std::str::from_utf8(slice) {
+                    out.push(s.to_string());
+                }
+            }
+        }
+    }
+    out
 }
 
 fn url_encode(s: &str) -> String {
@@ -64,147 +199,40 @@ fn url_encode(s: &str) -> String {
     out
 }
 
-pub async fn synthesize(req: TtsRequest) -> Result<TtsResponse, String> {
-    let rate = req.rate.unwrap_or_else(|| "+0%".into());
-    let pitch = req.pitch.unwrap_or_else(|| "+0Hz".into());
-
-    let sec_ms_gec = generate_sec_ms_gec();
-    let wss_url = format!(
-        "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?trustedclient=true&Sec-MS-GEC={}&Sec-MS-GEC-Version={}",
-        sec_ms_gec, SEC_MS_GEC_VERSION
-    );
-
-    let mut ws_request = wss_url
-        .into_client_request()
-        .map_err(|e| format!("edge-tts request build failed: {e}"))?;
-    let headers = ws_request.headers_mut();
-    headers.insert("Pragma", "no-cache".parse().unwrap());
-    headers.insert("Cache-Control", "no-cache".parse().unwrap());
-    headers.insert(
-        "Origin",
-        "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold"
-            .parse()
-            .unwrap(),
-    );
-    headers.insert(
-        "Accept-Encoding",
-        "gzip, deflate, br".parse().unwrap(),
-    );
-    headers.insert("Accept-Language", "en-US,en;q=0.9".parse().unwrap());
-    headers.insert(
-        "User-Agent",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0"
-            .parse()
-            .unwrap(),
-    );
-
-    let (mut ws, _) = tokio_tungstenite::connect_async(ws_request)
-        .await
-        .map_err(|e| format!("edge-tts WebSocket connect failed: {e}"))?;
-
-    // Step 1: speech config
-    let now = chrono::Utc::now().format("%a %b %d %Y %H:%M:%S GMT+0000").to_string();
-    let config_msg = format!(
-        "X-Timestamp:{now}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{{\"context\":{{\"synthesis\":{{\"audio\":{{\"metadataoptions\":{{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"}},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}}}}}"
-    );
-    ws.send(Message::Text(config_msg))
-        .await
-        .map_err(|e| format!("edge-tts config send failed: {e}"))?;
-
-    // Step 2: SSML speak
-    let request_id = format!("{}", uuid::Uuid::new_v4());
-    let ssml = format!(
-        "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'><voice name='{}'><prosody pitch='{}' rate='{}'>{}</prosody></voice></speak>",
-        req.voice,
-        pitch,
-        rate,
-        xml_escape(&req.text),
-    );
-    let speak_msg = format!(
-        "X-RequestId:{request_id}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:{now}\r\nPath:ssml\r\n\r\n{ssml}"
-    );
-    ws.send(Message::Text(speak_msg))
-        .await
-        .map_err(|e| format!("edge-tts speak send failed: {e}"))?;
-
-    // Step 3: collect audio
-    let mut audio_bytes: Vec<u8> = Vec::new();
-    while let Some(msg) = ws.next().await {
-        let msg = msg.map_err(|e| format!("edge-tts WebSocket error: {e}"))?;
-        match msg {
-            Message::Binary(data) => {
-                if data.len() < 2 {
-                    continue;
-                }
-                let header_len = u16::from_be_bytes([data[0], data[1]]) as usize;
-                if data.len() < header_len + 2 {
-                    continue;
-                }
-                let header = String::from_utf8_lossy(&data[2..2 + header_len]).to_string();
-                let audio = &data[2 + header_len..];
-                if header.contains("Path:audio") {
-                    audio_bytes.extend_from_slice(audio);
-                }
-            }
-            Message::Text(text) => {
-                if text.contains("Path:turn.end") {
-                    break;
-                }
-            }
-            Message::Close(_) => break,
-            _ => {}
-        }
-    }
-    let _ = ws.close(None).await;
-
-    if audio_bytes.is_empty() {
-        return Err("edge-tts returned no audio data".into());
-    }
-
-    Ok(TtsResponse {
-        audio_base64: base64::engine::general_purpose::STANDARD.encode(&audio_bytes),
-        format: "audio-24khz-48kbitrate-mono-mp3".into(),
-    })
-}
-
-fn xml_escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn xml_escapes_specials() {
-        assert_eq!(xml_escape("a < b & c"), "a &lt; b &amp; c");
-        assert_eq!(xml_escape("say \"hi\""), "say &quot;hi&quot;");
+    fn voice_to_language_known() {
+        assert_eq!(voice_to_language("en-US-JennyNeural"), "en");
+        assert_eq!(voice_to_language("es-ES-ElviraNeural"), "es");
+        assert_eq!(voice_to_language("zh-CN-XiaoxiaoNeural"), "zh-CN");
     }
 
     #[test]
-    fn sec_ms_gec_is_deterministic_within_window() {
-        let a = generate_sec_ms_gec();
-        std::thread::sleep(Duration::from_millis(10));
-        let b = generate_sec_ms_gec();
-        // Within a 5-minute window the token must be identical.
-        assert_eq!(a, b);
+    fn voice_to_streamelements_known() {
+        assert_eq!(voice_to_streamelements("en-US-JennyNeural"), "Amy");
+        assert_eq!(voice_to_streamelements("en-US-GuyNeural"), "Brian");
+        assert_eq!(voice_to_streamelements("unknown"), "Amy");
     }
 
     #[test]
-    fn sec_ms_gec_is_url_safe() {
-        let token = generate_sec_ms_gec();
-        assert!(!token.contains('+'));
-        assert!(!token.contains('/'));
-        assert!(!token.contains('='));
+    fn chunk_text_short() {
+        assert_eq!(chunk_text("hello world", 200), vec!["hello world"]);
     }
 
     #[test]
-    fn url_encode_handles_specials() {
-        assert_eq!(url_encode("a+b/c=d"), "a%2Bb%2Fc%3Dd");
-        assert_eq!(url_encode("hello-world_1.0~"), "hello-world_1.0~");
+    fn chunk_text_long() {
+        let text = "a".repeat(500);
+        let chunks = chunk_text(&text, 200);
+        assert!(chunks.len() > 1, "expected multiple chunks, got {}", chunks.len());
+        assert!(chunks.iter().all(|c| c.chars().count() <= 200));
+    }
+
+    #[test]
+    fn url_encode_handles_spaces_and_unicode() {
+        assert_eq!(url_encode("hello world"), "hello%20world");
+        assert_eq!(url_encode("café"), "caf%C3%A9");
     }
 }
