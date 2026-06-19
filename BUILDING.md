@@ -1,92 +1,95 @@
-# Building pdf2vid installers
+# Building pdf2vid
 
-This document covers building installable artifacts for Windows, macOS, and Linux.
+This document covers building installable artifacts for Windows, macOS,
+and Linux from source.
 
-## Quick start (current platform)
+## Prerequisites
+
+- **Node.js** 20 or later
+- **Rust** stable toolchain (`rustup default stable`)
+- **Platform Tauri prerequisites** — see
+  https://v2.tauri.app/start/prerequisites/
+- **Linux extra packages** — `libwebkit2gtk-4.1-dev libappindicator3-dev
+  librsvg2-dev patchelf`
+- **macOS** — Xcode Command Line Tools (`xcode-select --install`)
+- **Windows** — WebView2 runtime (preinstalled on Windows 10+)
+- **FFmpeg** — installed system-wide, or bundled via the sidecar script
+- **Python 3.8+** with `edge-tts` for the default voice provider
+
+## Quick Start
 
 ```bash
+git clone https://github.com/wpggLabs/pdf2vid
+cd pdf2vid
 npm install
-npm run build:win     # Windows: produces .msi + .exe
-npm run build:mac     # macOS:   produces .dmg + .app
-npm run build:linux   # Linux:   produces .deb + .AppImage + .rpm
+pip install edge-tts          # for the default voice provider
+npm run tauri build           # produces installers for the current platform
 ```
 
-The `build:*` scripts run `node scripts/fetch-ffmpeg.js <target>` first to
-download the FFmpeg static binary that the app expects. The binary is placed
-in `src-tauri/binaries/` and Tauri's bundler copies it alongside the
-executable at build time.
-
-## Manual FFmpeg fetch
-
-If you only want the FFmpeg sidecar (not the full installer):
+## Platform-Specific Builds
 
 ```bash
-npm run fetch-ffmpeg              # current host only
-npm run fetch-ffmpeg:all          # win + mac (both arches) + linux
+npm run build:win      # Windows: .msi + .exe
+npm run build:mac      # macOS:   .dmg + .app (Intel + Apple Silicon)
+npm run build:linux    # Linux:   .deb + .AppImage + .rpm
 ```
 
-The script downloads from these trusted sources:
+Each script downloads the platform-specific FFmpeg sidecar automatically
+via `scripts/fetch-ffmpeg.js` before invoking `tauri build`.
+
+## Build Outputs
+
+After a successful build, installers are placed in:
+
+```
+src-tauri/target/release/bundle/
+├── msi/      pdf2vid_<version>_x64_en-US.msi
+├── nsis/     pdf2vid_<version>_x64-setup.exe
+├── dmg/      pdf2vid_<version>_<arch>.dmg
+├── macos/    pdf2vid.app
+├── deb/      pdf2vid_<version>_amd64.deb
+├── appimage/ pdf2vid_<version>_amd64.AppImage
+└── rpm/      pdf2vid-<version>-1.<arch>.rpm
+```
+
+## FFmpeg Sidecar
+
+`scripts/fetch-ffmpeg.js` downloads platform-specific FFmpeg static
+builds and places them in `src-tauri/binaries/` with Tauri's expected
+target-triple naming.
 
 | Platform | Source |
 |---|---|
-| Windows x86_64 | BtbN FFmpeg-Builds (gpl) |
-| macOS x86_64 | evermeet.cx |
-| macOS arm64 | osxexperts.net |
-| Linux x86_64 | johnvansickle.com static builds |
+| Windows x86_64 | github.com/BtbN/FFmpeg-Builds (GPL) |
+| macOS x86_64   | evermeet.cx |
+| macOS arm64    | osxexperts.net |
+| Linux x86_64   | johnvansickle.com static builds |
 
-## Manual build
+Use `npm run fetch-ffmpeg:all` to download for all platforms at once.
 
-```bash
-npm install
-npm run tauri build
-```
-
-Produces:
-- **Windows**: `src-tauri/target/release/bundle/{msi,nsis}/*.msi/*.exe`
-- **macOS**:   `src-tauri/target/release/bundle/{dmg,macos}/*.dmg/*.app`
-- **Linux**:   `src-tauri/target/release/bundle/{deb,rpm,appimage}/*`
-
-## Cross-platform builds
+## Cross-Platform Builds
 
 Tauri cannot cross-compile desktop apps because of native dependencies
-(WebView2 on Windows, WebKit on macOS/Linux). Each platform must be built on
-that platform or via CI.
+(WebView2 on Windows, WebKit on macOS/Linux). Each platform must be
+built on that platform or via CI.
 
-The `.github/workflows/release.yml` workflow builds all three platforms in
-parallel when you push a `v*` tag.
+The `.github/workflows/release.yml` workflow builds all three platforms
+in parallel when you push a `v*` tag.
 
-## Toolchain requirements
-
-- **Node.js** 20+
-- **Rust** stable (`rustup default stable`)
-- **Tauri 2 prerequisites** per platform — see https://v2.tauri.app/start/prerequisites/
-- **Linux extra**: `libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`
-- **Windows**: WebView2 runtime (preinstalled on Win10+)
-- **macOS**: Xcode Command Line Tools
-
-## End-user runtime requirement
-
-The desktop app uses system FFmpeg if found, and falls back to the bundled
-sidecar. If neither is present, the status bar shows
-"FFmpeg not found" and export is blocked. End users can install FFmpeg:
-
-| Platform | Command |
-|---|---|
-| Windows | `winget install Gyan.FFmpeg` or download from gyan.dev |
-| macOS   | `brew install ffmpeg` |
-| Linux   | `sudo apt install ffmpeg` (Debian/Ubuntu) or `sudo dnf install ffmpeg` (Fedora) |
-
-## CI release flow
+## CI Release Flow
 
 1. Bump version in `package.json` and `src-tauri/Cargo.toml`.
-2. Commit and push a `v0.1.0` tag.
-3. `.github/workflows/release.yml` triggers:
-   - Builds Windows installer (`.msi` + `.exe`)
-   - Builds macOS bundles (`.dmg` + `.app` for x86_64 and arm64)
-   - Builds Linux packages (`.deb` + `.AppImage` + `.rpm`)
-   - Creates a GitHub release draft with all artifacts.
+2. Update `CHANGELOG.md` with the release notes.
+3. Commit and push a `v0.1.0` tag.
+4. `.github/workflows/release.yml` triggers:
+   - Windows installer (`.msi` + `.exe`)
+   - macOS bundles (`.dmg` + `.app` for x86_64 and arm64)
+   - Linux packages (`.deb` + `.AppImage` + `.rpm`)
+   - GitHub release draft with all artifacts.
 
-## Local debug build (faster, no installer)
+## Debug Build
+
+For faster iteration during development:
 
 ```bash
 npm run tauri build -- --debug
@@ -94,3 +97,30 @@ npm run tauri build -- --debug
 
 Produces a debug-mode binary in `src-tauri/target/debug/`. Useful for
 testing without waiting for the full release build.
+
+## Web-Only Development
+
+To iterate on the UI without the Rust shell:
+
+```bash
+npm run dev
+```
+
+Opens the Vite dev server at `http://localhost:1420`. Tauri commands
+will fail in this mode — use `npm run tauri dev` for full integration.
+
+## Troubleshooting
+
+**FFmpeg not found at runtime** — Install FFmpeg on the system PATH or
+re-run the build with the sidecar fetch step. See
+`scripts/fetch-ffmpeg.js`.
+
+**edge-tts not detected** — Install Python 3.8+ and run
+`pip install edge-tts`. The status bar will show "edge-tts ready" when
+the package is importable.
+
+**WebView2 missing on Windows** — Preinstalled on Windows 10+; for older
+systems, install the Evergreen runtime from Microsoft.
+
+**macOS code signing** — Unsigned builds trigger Gatekeeper warnings.
+Run `xcrun notarytool submit` with an Apple Developer ID for distribution.

@@ -1,14 +1,14 @@
 # Providers
 
-`pdf2vid` exposes every translation, voice, and visual stage through a single
-provider registry. The user picks one provider per stage. The first option in each
-list is the free default.
+`pdf2vid` exposes every translation, voice, and visual stage through a
+single provider registry. The user picks one provider per stage. The
+first option in each list is the free default.
 
 ## Translation
 
 | Provider | Tier | Cost | Network | Notes |
 |---|---|---|---|---|
-| **MarianMT** | Free default | Free | Model download (one-time) | Helsinki-NLP Opus-MT. Runs locally via ONNX after model files are downloaded. CC-BY-4.0. |
+| **MarianMT** | Free default | Free | Model download (one-time) | Helsinki-NLP Opus-MT. Runs locally after model files are downloaded. CC-BY-4.0. |
 | **OpenAI** | BYO key | Per-token (your account) | Per request | `gpt-4o-mini` chat completion. |
 | **Google Cloud Translation** | BYO key | Per-character (your account) | Per request | REST API v2 with API key. |
 | DeepL | Coming soon | — | — | UI badge "Coming soon", blocked from export. |
@@ -33,10 +33,24 @@ list is the free default.
 
 ## Network and license disclosure
 
-- **edge-tts**: sends scene narration text to `*.api.cognitive.microsoft.com` and receives MP3 audio. No account, no quota for normal use. Microsoft's ToS technically restrict non-Edge use; enforcement is effectively zero and the project is widely used in the OSS ecosystem. Requires Python 3.8+ with the `edge-tts` package (`pip install edge-tts`).
-- **MarianMT models**: downloaded once from `huggingface.co` (Helsinki-NLP/Opus-MT repos). Most pairs are CC-BY-4.0; some are CC-BY-NC. The model picker in Settings surfaces the license before download.
-- **Piper voices**: downloaded once from `huggingface.co` (rhasspy/piper-voices). Most are CC-BY-4.0.
-- **OpenAI / Google / ElevenLabs**: paid BYO-key tiers. Your key is sent directly from your machine to the provider's API. Keys live in the OS credential store (`keyring` crate).
+- **edge-tts** — sends scene narration text to
+  `*.api.cognitive.microsoft.com` and receives MP3 audio. No account, no
+  quota for normal use. Microsoft's ToS technically restrict non-Edge use;
+  enforcement is effectively zero and the project is widely used in the
+  OSS ecosystem. Requires Python 3.8+ with the `edge-tts` package
+  (`pip install edge-tts`).
+
+- **MarianMT models** — downloaded once from `huggingface.co`
+  (Helsinki-NLP/Opus-MT repos). Most pairs are CC-BY-4.0; some are
+  CC-BY-NC. The model picker in Settings surfaces the license before
+  download.
+
+- **Piper voices** — downloaded once from `huggingface.co`
+  (rhasspy/piper-voices). Most are CC-BY-4.0.
+
+- **OpenAI / Google / ElevenLabs** — paid BYO-key tiers. Your key is
+  sent directly from your machine to the provider's API. Keys live in
+  the OS credential store (`keyring` crate).
 
 ## What never leaves your device
 
@@ -48,11 +62,26 @@ list is the free default.
 ## What leaves your device
 
 Only when you explicitly choose a paid provider or the edge-tts default:
-- For edge-tts: scene narration text → Microsoft endpoint → MP3 audio.
-- For OpenAI translation: scene narration text → `api.openai.com`.
-- For OpenAI TTS: scene narration text → `api.openai.com`.
-- For Google Translation: scene narration text → `translation.googleapis.com`.
-- For ElevenLabs: scene narration text → `api.elevenlabs.io`.
 
-API keys are never logged, never embedded in project files, never sent to any
-analytics endpoint.
+- For edge-tts: scene narration text → Microsoft endpoint → MP3 audio
+- For OpenAI translation: scene narration text → `api.openai.com`
+- For OpenAI TTS: scene narration text → `api.openai.com`
+- For Google Translation: scene narration text → `translation.googleapis.com`
+- For ElevenLabs: scene narration text → `api.elevenlabs.io`
+
+API keys are never logged, never embedded in project files, never sent to
+any analytics endpoint.
+
+## Fallback chain
+
+When the default voice provider is selected but the Python `edge-tts`
+package is not installed, pdf2vid automatically falls back through this
+chain on every scene:
+
+1. **edge-tts via Python subprocess** (`pip install edge-tts`)
+2. **StreamElements TTS** (English only, public anonymous endpoint)
+3. **Google Translate TTS** (all advertised languages, public anonymous endpoint)
+
+The UI never blocks the export on a missing provider — the user always
+gets narration audio for every scene. Errors surface in the status bar
+and the ProgressModal.

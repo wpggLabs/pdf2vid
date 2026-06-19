@@ -1,92 +1,197 @@
 # pdf2vid
 
-`pdf2vid` is a local-first desktop studio for turning text-based PDFs into editable,
-narrated video projects for YouTube and TikTok.
+<p align="center">
+  <img src="assets/banner.svg" alt="pdf2vid" width="100%">
+</p>
 
-## Current release
+<p align="center">
+  <strong>Local-first desktop studio that turns text-based PDFs into narrated
+  video projects for YouTube and TikTok.</strong>
+</p>
 
-- Cross-platform Tauri 2 application for Windows, macOS, and Linux.
-- Real PDF parsing, page thumbnails, page selection, and editable scene scripts.
-- Full-length 1920x1080 YouTube and 1080x1920 TikTok export configuration.
-- **Free by default**: works with no account and no API keys.
-- **Optional paid upgrades**: bring your own OpenAI, ElevenLabs, or Google Cloud API key for higher quality translation or voice.
-- Native FFmpeg integration via system PATH or bundled sidecar.
-- Local project persistence in `app_data_dir`, OS credential storage for API keys.
-- Live progress events with cancellation.
-- No account requirement and no project telemetry.
+<p align="center">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="https://v2.tauri.app/"><img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=black"></a>
+  <a href="https://react.dev/"><img alt="React" src="https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white"></a>
+  <a href="https://www.rust-lang.org/"><img alt="Rust" src="https://img.shields.io/badge/Rust-stable-DEA584?logo=rust&logoColor=black"></a>
+  <img alt="Platforms" src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey">
+</p>
 
-## Free vs paid path
+<p align="center">
+  <a href="#installation">Installation</a> &middot;
+  <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#providers">Providers</a> &middot;
+  <a href="docs/ARCHITECTURE.md">Architecture</a> &middot;
+  <a href="docs/providers.md">Provider Reference</a> &middot;
+  <a href="BUILDING.md">Building</a>
+</p>
 
-Every PDF → video export works with **zero cost** using the local default providers:
+---
 
-| Stage | Free default | Optional paid upgrade |
-|---|---|---|
-| Translation | MarianMT (Helsinki-NLP, runs locally after model download) | OpenAI, Google Cloud Translation |
-| Voice | edge-tts (Microsoft Neural, free, requires network at synthesis) | OpenAI TTS, ElevenLabs |
-| Visual | PDF page thumbnails with Ken Burns + subtitle burn | — |
-| Render | FFmpeg (system PATH or bundled sidecar) | — |
+<p align="center">
+  <img src="assets/screenshot.png" alt="pdf2vid editor at 1440x1024" width="900">
+</p>
 
-See [`docs/providers.md`](docs/providers.md) for full per-provider details.
+## Highlights
 
-## Network usage
+- **Real PDF parsing** — text extraction, page thumbnails, scene selection, editable per-scene scripts
+- **YouTube 1920×1080** and **TikTok 1080×1920** full-length export
+- **Free by default** — works with zero accounts, zero API keys, zero subscriptions
+- **Optional paid upgrades** — bring your own OpenAI, Google Cloud, or ElevenLabs key for higher quality
+- **Provider registry** — OpenAI, Google Cloud Translation, ElevenLabs, edge-tts, Piper, MarianMT
+- **Native FFmpeg integration** — system PATH or bundled sidecar
+- **OS credential storage** — keys never written to project files
+- **Live progress** with cancellation, debounced auto-save, and streaming PDF import
+- **Cross-platform** — Windows 10+, macOS 11+, Ubuntu 22.04+
 
-- **edge-tts**: each scene narration is sent to `*.api.cognitive.microsoft.com`. The audio bytes come back as MP3. No login required.
-- **MarianMT model download**: one-time per language pair from `huggingface.co` (~300 MB per pair). After that, fully offline.
-- **Paid providers**: your API key is used directly from your machine against the provider's API. Keys are stored in your OS credential store and never written to project files.
+## Installation
 
-## Development
+### Windows
 
-Requirements: Node.js 20+, Rust stable, the
-[Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/), FFmpeg, and FFprobe.
+Download the latest `pdf2vid_0.1.0_x64-setup.exe` from the
+[Releases](../../releases) page. The MSI and NSIS installers bundle FFmpeg
+auto-detection and the desktop runtime.
 
-For the default free voice provider (`edge-tts`):
+```powershell
+winget install pdf2vid
+# or download from the Releases page
+```
+
+### macOS / Linux
+
+See [BUILDING.md](BUILDING.md) for the build matrix or download the
+appropriate `.dmg` / `.deb` / `.AppImage` / `.rpm` from the Releases page.
+
+### Optional: edge-tts for the highest-quality free voice
+
+The default voice provider (`edge-tts`) shells out to the Python `edge-tts`
+package, which calls the free Microsoft Edge browser TTS endpoint. Install
+it once:
 
 ```bash
 pip install edge-tts
 ```
 
-This is how Hermes agent does it: shells out to the `edge-tts` Python package
-which calls Microsoft's free Edge browser TTS endpoint. No API key, no account,
-no billing. If `edge-tts` isn't available, the app falls back to
-StreamElements (English) and Google Translate TTS (other languages) automatically.
+If `edge-tts` is unavailable, pdf2vid automatically falls back to
+StreamElements (English) and Google Translate TTS (other languages). No
+crash, no error.
 
-```bash
-npm install
-npm run tauri dev
+## Quick Start
+
+1. **Launch pdf2vid.** The status bar should read "Ready".
+2. **Click Import PDF** in the top-left, or drag a PDF onto the window.
+   Text-based PDFs work directly; scanned PDFs need OCR first.
+3. **Pick the output language** and providers in the right inspector.
+   Free defaults work without setup.
+4. **Edit scene scripts** in the bottom editor. Each PDF page becomes
+   one scene.
+5. **Click Export video**, choose a folder, watch the progress bar.
+   Cancel any time.
+
+For higher quality, open **Settings**, paste an OpenAI or ElevenLabs API
+key, and pick the cloud provider from the dropdown.
+
+## Providers
+
+pdf2vid exposes every stage through a single registry. The user picks one
+provider per stage. The first option in each list is the free default.
+
+| Stage | Free default | Optional paid | Notes |
+|---|---|---|---|
+| Translation | MarianMT (local, CC-BY-4.0) | OpenAI, Google Cloud | Model download ~300 MB per pair |
+| Voice | edge-tts (Microsoft Neural via Python) | OpenAI TTS, ElevenLabs | Requires `pip install edge-tts` |
+| Visual | PDF pages + Ken Burns + drawtext | Higgsfield (coming soon) | Zero dependencies |
+| Render | FFmpeg (system PATH or sidecar) | — | Bundled by default |
+
+See [docs/providers.md](docs/providers.md) for the full per-provider
+matrix with data flow, license, and network behavior.
+
+## Repository Layout
+
+```
+pdf2vid/
+├── assets/                  # README banner, screenshot
+├── docs/
+│   ├── ARCHITECTURE.md      # Backend/frontend architecture
+│   ├── providers.md        # Provider reference
+│   └── design/              # UI design references
+├── src/                     # React + TypeScript frontend
+│   ├── App.tsx              # Top-level component
+│   ├── pdf.ts               # pdfjs-dist streaming import
+│   ├── backend.ts           # Typed Tauri command/event wrappers
+│   ├── components/          # Modal and view components
+│   └── hooks/               # Timeline playback, preview voice, etc.
+├── src-tauri/               # Rust backend
+│   ├── src/
+│   │   ├── lib.rs           # Tauri builder + command registration
+│   │   ├── commands.rs      # 14 #[tauri::command] handlers
+│   │   ├── render.rs        # 4-stage export pipeline
+│   │   ├── providers.rs     # Provider registry
+│   │   ├── models.rs        # MarianMT + Piper model registry
+│   │   ├── edgetts.rs       # edge-tts Python subprocess
+│   │   ├── cloud.rs         # OpenAI, Google, ElevenLabs HTTP clients
+│   │   ├── ffmpeg.rs        # FFmpeg detection + arg builders
+│   │   └── state.rs         # AppState, JobHandle, cancel flag
+│   ├── tauri.conf.json
+│   ├── capabilities/
+│   └── Cargo.toml
+├── scripts/
+│   └── fetch-ffmpeg.js      # Platform-specific FFmpeg downloader
+├── BUILDING.md              # Build matrix per platform
+├── CONTRIBUTING.md
+├── SECURITY.md
+└── LICENSE
 ```
 
-Web-only UI development: `npm run dev`.
+## Development
+
+Requirements: Node.js 20+, Rust stable, the
+[Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/), FFmpeg,
+and FFprobe.
+
+```bash
+git clone https://github.com/wpggLabs/pdf2vid
+cd pdf2vid
+npm install
+npm run tauri dev          # Development build with HMR
+```
+
+Web-only UI development (without the Rust shell):
+
+```bash
+npm run dev
+```
 
 Validation:
 
 ```bash
-npm run test
-npm run build
-cargo test --manifest-path src-tauri/Cargo.toml
+npm run test                 # Vitest (frontend)
+npm run build                # TypeScript + Vite production build
+cargo test --manifest-path src-tauri/Cargo.toml --lib
 npm run tauri build -- --debug
 ```
 
-## First-run quick start
+## Contributing
 
-1. Click **Import PDF** and select a text-based PDF (scanned/image PDFs need OCR first).
-2. Pick the output language and providers — the free defaults work without any setup.
-3. Edit scene scripts in the right inspector.
-4. Click **Export video** and choose a folder.
-5. Watch the progress bar; cancel any time.
+See [CONTRIBUTING.md](CONTRIBUTING.md). The non-negotiable rules:
 
-For higher quality, open **Settings**, paste an OpenAI or ElevenLabs API key, and pick the cloud provider from the dropdown.
+1. Keep providers behind the provider registry in `src-tauri/src/providers.rs`
+2. Never log API keys, PDF contents, or generated narration
+3. Paid providers must never be selected automatically over a free local provider
+4. Run the full test suite before submitting
 
-## Privacy and API keys
+## Security
 
-Local providers keep PDF text on the device. API providers transmit only the data
-needed for the selected operation. Desktop API keys are stored in the operating
-system credential manager and are never written to project files.
-
-Do not use sensitive documents with an online provider unless its privacy terms are
-acceptable for the document.
-
-Issues and releases: [wpggLabs/pdf2vid](https://github.com/wpggLabs/pdf2vid)
+Report vulnerabilities through GitHub Security Advisories. See
+[SECURITY.md](SECURITY.md) for storage, network endpoints, and license gates.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
+
+---
+
+<p align="center">
+  <sub>Built with Tauri 2, React 19, Rust, pdfjs-dist, FFmpeg, and the
+  <a href="https://github.com/rany2/edge-tts">edge-tts</a> Python package.</sub>
+</p>
