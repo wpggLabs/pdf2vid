@@ -18,6 +18,7 @@ import { useTimelinePlayback } from "./hooks/useTimelinePlayback";
 import { useTranslationModelPrompt } from "./hooks/useTranslationModelPrompt";
 import { voiceOptionsFor } from "./lib/voiceOptions";
 import { useProjectState } from "./state/useProjectState";
+import { useWorkspaceUi } from "./state/useWorkspaceUi";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { ProviderOption } from "./types";
 import type { SystemStatus } from "./types";
@@ -31,10 +32,6 @@ function seconds(value: number) {
 function providerById(options: ProviderOption[], id: string) {
   return options.find((option) => option.id === id) ?? options[0];
 }
-
-type WorkspaceTab = "scenes" | "preview" | "export";
-type TimelineTab = "timeline" | "subtitles";
-type InspectorTab = "script" | "scene";
 
 function App() {
   const proj = useProjectState();
@@ -52,19 +49,12 @@ function App() {
     updateScene,
     removeScene,
   } = proj;
+  const ui = useWorkspaceUi();
   const [providers, setProviders] = useState<ProviderList | null>(null);
-  const [aspect, setAspect] = useState<"youtube" | "tiktok">("youtube");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [modelsOpen, setModelsOpen] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
-  const [progressJobId, setProgressJobId] = useState<string | null>(null);
   const [system, setSystem] = useState<SystemStatus>({
     ffmpeg: false, ffprobe: false, platform: "Browser preview", ffmpegSidecarReady: false,
   });
-  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("scenes");
-  const [timelineTab, setTimelineTab] = useState<TimelineTab>("timeline");
-  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("script");
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [progressJobId, setProgressJobId] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
@@ -204,20 +194,6 @@ function App() {
     preview.preview(project.voiceProvider, project.voice, active.script);
   }, [preview, project.voiceProvider, project.voice, active.script]);
 
-  // Fullscreen toggle
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.().catch(() => undefined);
-    } else {
-      document.exitFullscreen?.().catch(() => undefined);
-    }
-  }, []);
-
-  // Switch to Preview workspace tab and open the preview modal
-  const openPreview = useCallback(() => {
-    setPreviewOpen(true);
-  }, []);
-
   const translationProvider = providers
     ? providerById(providers.translation, project.translationProvider)
     : null;
@@ -236,25 +212,25 @@ function App() {
         </div>
         <nav aria-label="Workspace">
           <button
-            className={workspaceTab === "scenes" ? "nav-active" : ""}
-            onClick={() => setWorkspaceTab("scenes")}
+            className={ui.workspaceTab === "scenes" ? "nav-active" : ""}
+            onClick={() => ui.setWorkspaceTab("scenes")}
           >
             <List size={18} />Scenes
           </button>
           <button
-            className={workspaceTab === "preview" ? "nav-active" : ""}
-            onClick={openPreview}
+            className={ui.workspaceTab === "preview" ? "nav-active" : ""}
+            onClick={ui.handlePreviewTab}
           >
             <Play size={18} />Preview
           </button>
-          <button onClick={() => setExportOpen(true)}>
+          <button onClick={ui.openExport}>
             <Export size={18} />Export
           </button>
         </nav>
         <button
           className="icon-button"
           aria-label="Settings"
-          onClick={() => setSettingsOpen(true)}
+          onClick={() => ui.setSettingsOpen(true)}
         >
           <Gear size={20} />
         </button>
@@ -343,17 +319,17 @@ function App() {
         <section className="editor" ref={previewRef as unknown as React.RefObject<HTMLElement>}>
           <div className="preview-toolbar">
             <select
-              value={aspect}
-              onChange={(event) => setAspect(event.target.value as "youtube" | "tiktok")}
+              value={ui.aspect}
+              onChange={(event) => ui.setAspect(event.target.value as "youtube" | "tiktok")}
             >
               <option value="youtube">YouTube · 1920×1080</option>
               <option value="tiktok">TikTok · 1080×1920</option>
             </select>
-            <button className="icon-button" onClick={toggleFullscreen} aria-label="Fullscreen">
+            <button className="icon-button" onClick={ui.toggleFullscreen} aria-label="Fullscreen">
               <ArrowsOut size={18} />
             </button>
           </div>
-          <div className={`preview-stage ${aspect}`}>
+          <div className={`preview-stage ${ui.aspect}`}>
             <div className="paper-preview">
               {active.thumbnail ? (
                 <img src={active.thumbnail} alt={`PDF page ${active.page}`} />
@@ -384,19 +360,19 @@ function App() {
           </div>
           <div className="timeline-tabs">
             <button
-              className={timelineTab === "timeline" ? "active" : ""}
-              onClick={() => setTimelineTab("timeline")}
+              className={ui.timelineTab === "timeline" ? "active" : ""}
+              onClick={() => ui.setTimelineTab("timeline")}
             >
               TIMELINE
             </button>
             <button
-              className={timelineTab === "subtitles" ? "active" : ""}
-              onClick={() => setTimelineTab("subtitles")}
+              className={ui.timelineTab === "subtitles" ? "active" : ""}
+              onClick={() => ui.setTimelineTab("subtitles")}
             >
               SUBTITLES
             </button>
           </div>
-          {timelineTab === "timeline" ? (
+          {ui.timelineTab === "timeline" ? (
             <div className="timeline">
               <div className="time-ruler">
                 <span>0:00</span>
@@ -483,14 +459,14 @@ function App() {
         <aside className="inspector">
           <div className="inspector-tabs">
             <button
-              className={inspectorTab === "script" ? "active" : ""}
-              onClick={() => setInspectorTab("script")}
+              className={ui.inspectorTab === "script" ? "active" : ""}
+              onClick={() => ui.setInspectorTab("script")}
             >
               SCRIPT
             </button>
             <button
-              className={inspectorTab === "scene" ? "active" : ""}
-              onClick={() => setInspectorTab("scene")}
+              className={ui.inspectorTab === "scene" ? "active" : ""}
+              onClick={() => ui.setInspectorTab("scene")}
             >
               SCENE
             </button>
@@ -530,7 +506,7 @@ function App() {
                         : "Runs on this device"
                       : "Uses your account"}
                   </span>
-                  <button onClick={() => setSettingsOpen(true)}>Configure</button>
+                  <button onClick={() => ui.setSettingsOpen(true)}>Configure</button>
                 </div>
               )}
               {providers.voice.length > 0 && (
@@ -553,7 +529,7 @@ function App() {
                         : "Runs on this device"
                       : "Uses your account"}
                   </span>
-                  <button onClick={() => setSettingsOpen(true)}>Configure</button>
+                  <button onClick={() => ui.setSettingsOpen(true)}>Configure</button>
                 </div>
               )}
               <label>
@@ -609,7 +585,7 @@ function App() {
           ) : (
             <div className="inspector-loading">Loading providers…</div>
           )}
-          {inspectorTab === "scene" && (
+          {ui.inspectorTab === "scene" && (
             <div className="scene-meta-panel">
               <label>
                 PAGE TITLE
@@ -673,7 +649,7 @@ function App() {
                 <span>1080×1920 · H.264</span>
               </div>
             </label>
-            <button className="export-primary" onClick={() => setExportOpen(true)}>
+            <button className="export-primary" onClick={ui.openExport}>
               <Export size={18} />Export video
             </button>
           </div>
@@ -697,33 +673,33 @@ function App() {
         </span>
       </footer>
 
-      {settingsOpen && (
+      {ui.settingsOpen && (
         <SettingsModal
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => ui.setSettingsOpen(false)}
           onOpenModels={() => {
-            setSettingsOpen(false);
-            setModelsOpen(true);
+            ui.setSettingsOpen(false);
+            ui.setModelsOpen(true);
           }}
         />
       )}
-      {modelsOpen && <ModelsModal onClose={() => setModelsOpen(false)} />}
-      {exportOpen && (
+      {ui.modelsOpen && <ModelsModal onClose={() => ui.setModelsOpen(false)} />}
+      {ui.exportOpen && (
         <ExportModal
           project={project}
-          onClose={() => setExportOpen(false)}
+          onClose={() => ui.setExportOpen(false)}
           onStart={startExport}
           onOpenSettings={() => {
-            setExportOpen(false);
-            setSettingsOpen(true);
+            ui.setExportOpen(false);
+            ui.setSettingsOpen(true);
           }}
         />
       )}
       {progressJobId && (
         <ProgressModal jobId={progressJobId} onClose={() => setProgressJobId(null)} />
       )}
-      {previewOpen && (
+      {ui.previewOpen && (
         <PreviewModal
-          onClose={() => setPreviewOpen(false)}
+          onClose={() => ui.setPreviewOpen(false)}
           scene={active}
           voiceProvider={project.voiceProvider}
           voice={project.voice}
