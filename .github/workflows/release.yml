@@ -19,9 +19,28 @@ jobs:
           node-version: 20
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
-      - name: Linux dependencies
+
+      - name: Linux system deps
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf curl unzip
+
+      - name: macOS fetch tools
+        if: runner.os == 'macOS'
+        run: brew install curl unzip xz
+
+      - name: Fetch FFmpeg sidecar
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            npm run fetch-ffmpeg -- win-x86_64
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            npm run fetch-ffmpeg -- mac
+          else
+            npm run fetch-ffmpeg -- linux-x86_64
+          fi
+
       - run: npm ci
       - uses: tauri-apps/tauri-action@v0
         env:
@@ -31,3 +50,14 @@ jobs:
           releaseName: pdf2vid v__VERSION__
           releaseDraft: true
           prerelease: false
+
+  ci:
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Build matrix result: ${{ needs.build.result }}"
+      - if: needs.build.result != 'success'
+        run: |
+          echo "One or more platform builds failed"
+          exit 1

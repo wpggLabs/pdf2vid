@@ -9,7 +9,12 @@
     "test": "vitest run",
     "check": "npm run test && npm run build && npm run tauri build -- --debug",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "fetch-ffmpeg": "node scripts/fetch-ffmpeg.js",
+    "fetch-ffmpeg:all": "node scripts/fetch-ffmpeg.js all",
+    "build:win": "node scripts/fetch-ffmpeg.js win-x86_64 && npm run tauri build",
+    "build:mac": "node scripts/fetch-ffmpeg.js mac && npm run tauri build",
+    "build:linux": "node scripts/fetch-ffmpeg.js linux-x86_64 && npm run tauri build"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
