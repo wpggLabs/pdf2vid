@@ -32,3 +32,37 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .modal-backdrop{position:fixed;inset:0;z-index:50;background:#050608b8;display:grid;place-items:center}.modal{width:420px;background:#1b1e23;border:1px solid #3a404a;box-shadow:0 22px 70px #000b;padding:0 0 18px;border-radius:7px}.modal header{height:52px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding:0 14px}.modal h2{font-size:15px;margin:0}.modal header button{font-size:22px}.modal label{font-size:10px}.modal select,.modal input{width:100%}.modal .export-primary{margin:18px 14px 0;width:calc(100% - 28px)}.modal-note{display:flex;gap:8px;margin:14px;color:#939aa5;font-size:10px;line-height:1.4}.export-summary{display:flex;flex-direction:column;align-items:center;padding:22px;gap:5px;color:#7ca9ef}.export-summary strong{color:#e7e9ed;font-size:15px}.export-summary span{color:#8f96a0;font-size:10px}.modal>.check-row{margin:0 14px 8px!important}
 @media(max-width:1180px){.workspace{grid-template-columns:230px minmax(480px,1fr) 280px}.topbar{grid-template-columns:210px 1fr auto 44px}.scene-row{grid-template-columns:18px 60px 1fr}.thumb{height:52px}.editor{grid-template-rows:44px minmax(220px,1fr) 46px 36px 190px 140px}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+
+.modal-wide{width:560px}
+.modal-error,.modal-warning{margin:0 14px;padding:8px 10px;font-size:11px;border-radius:4px}
+.modal-error{background:#3a1a1a;color:#ff9b9b;border:1px solid #5a2c2c}
+.modal-warning{background:#3a2c1a;color:#ffd28a;border:1px solid #5a4a2c}
+.modal-status{margin:0 14px;color:var(--green);font-size:11px}
+.export-warning{display:flex;align-items:center;gap:8px;margin:0 14px 8px;padding:10px;border:1px solid #4a4a2c;background:#2a2a1c;color:#ffd28a;font-size:11px;border-radius:4px}
+.export-warning .link{margin-left:auto;background:transparent;border:0;color:#7ca9ef;cursor:pointer;font-size:11px;text-decoration:underline}
+.export-secondary{margin:8px 14px 0;width:calc(100% - 28px);border:1px solid #363b44;background:transparent;color:#dfe2e7;padding:10px;display:flex;justify-content:center;gap:7px;font-size:11px;border-radius:4px;cursor:pointer}
+.export-secondary:hover{border-color:#4c82d5}
+.export-primary.compact{padding:6px 10px;font-size:11px;margin:0}
+.model-list{display:flex;flex-direction:column;gap:8px;padding:0 14px 14px;max-height:420px;overflow:auto}
+.model-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px;border:1px solid #2b3038;background:#1b1e23;border-radius:5px}
+.model-row.installed{border-color:#28563c;background:#17302266}
+.model-row>div:first-child{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.model-row>div:first-child strong{font-size:12px;font-weight:500}
+.model-row>div:first-child span{font-size:10px;color:#8c929d}
+.model-progress{display:flex;flex-direction:column;gap:4px;align-items:flex-end;min-width:160px}
+.model-progress-bar{height:4px;background:#2f7df4;border-radius:2px;width:0;transition:width .2s}
+.model-progress span{font-size:10px;color:#8c929d;font-family:"IBM Plex Mono"}
+.settings-tabs{display:flex;border-bottom:1px solid var(--line);padding:0 14px;margin:8px 0 0}
+.settings-tabs button{border:0;background:transparent;color:#8b919c;font-size:10px;font-weight:600;padding:10px 14px;cursor:pointer;text-transform:uppercase;letter-spacing:.05em}
+.settings-tabs button.active{color:#66a0ff;border-bottom:2px solid var(--blue)}
+.inspector-loading{padding:24px 14px;color:var(--muted);font-size:11px;text-align:center}
+.progress-modal{padding:18px 14px;display:flex;flex-direction:column;gap:12px}
+.progress-modal-stage{display:flex;flex-direction:column;gap:4px}
+.progress-modal-stage strong{font-size:13px;font-weight:600;color:#dfe2e7}
+.progress-modal-stage span{font-size:11px;color:#8c929d}
+.progress-modal-bar{height:8px;background:#1d2026;border-radius:4px;overflow:hidden}
+.progress-modal-bar-fill{height:100%;background:linear-gradient(90deg,#2f7df4,#66a0ff);transition:width .25s}
+.progress-modal-percent{font-size:11px;color:#8c929d;font-family:"IBM Plex Mono";text-align:right}
+.progress-done,.progress-error{padding:18px 14px;display:flex;flex-direction:column;gap:10px;font-size:12px;line-height:1.5}
+.progress-done code{background:#14171b;padding:1px 6px;border-radius:3px;font-size:10px}
+.progress-error{color:#ff9b9b}

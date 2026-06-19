@@ -26,10 +26,13 @@ same scene and preview structures.
 
 ## Interaction QA
 
-- Settings opens the provider dialog.
-- API key input accepts masked values and closes correctly.
-- Export has one unambiguous primary action.
+- Settings opens the provider dialog with category tabs.
+- Models modal lists MarianMT and Piper downloads with size, license, progress, and delete.
+- Export modal shows output folder picker via the dialog plugin.
+- Progress modal streams live stage and percent events from the Rust pipeline and offers Cancel.
+- API key input accepts masked values, saves into OS keyring, never into project files.
 - Provider, language, voice, aspect-ratio, page-selection, playback, and script controls expose functional state.
+- Stub providers are visually disabled with "Coming soon" badge.
 - Browser console contains no errors or warnings.
 
 Final result: passed

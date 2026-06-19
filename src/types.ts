@@ -1,11 +1,15 @@
 export type ProviderKind = "local" | "api";
+export type ProviderCategory = "translation" | "voice" | "visual";
 
 export interface ProviderOption {
   id: string;
   label: string;
   kind: ProviderKind;
   detail: string;
-  keyLabel?: string;
+  implemented: boolean;
+  online: boolean;
+  keyLabel: string | null;
+  category: ProviderCategory;
 }
 
 export interface Scene {
@@ -13,6 +17,7 @@ export interface Scene {
   page: number;
   title: string;
   script: string;
+  translatedScript?: string | null;
   duration: number;
   selected: boolean;
   thumbnail: string;
@@ -34,4 +39,5 @@ export interface SystemStatus {
   ffmpeg: boolean;
   ffprobe: boolean;
   platform: string;
+  ffmpegSidecarReady: boolean;
 }
