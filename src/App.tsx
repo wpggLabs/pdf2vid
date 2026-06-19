@@ -191,7 +191,7 @@ function App() {
     setStatus("Reading PDF…");
     setImportProgress({ page: 0, total: 0 });
     try {
-      const scenes = await parsePdf(
+      const result = await parsePdf(
         { kind: "file", file },
         (page, total) => {
           setStatus(`Reading page ${page} of ${total}`);
@@ -200,9 +200,9 @@ function App() {
         importAbort.current.signal,
       );
       const name = file.name.replace(/\.pdf$/i, "");
-      setProject((current) => ({ ...current, name, sourceName: file.name, scenes }));
-      setActiveId(scenes[0].id);
-      setStatus(`${scenes.length} pages imported`);
+      setProject((current) => ({ ...current, name, sourceName: file.name, scenes: result.scenes }));
+      setActiveId(result.scenes[0].id);
+      setStatus(formatImportStatus(result.scenes.length, result.skippedPages));
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not read this PDF");
     } finally {
@@ -216,7 +216,7 @@ function App() {
     setStatus("Reading PDF…");
     setImportProgress({ page: 0, total: 0 });
     try {
-      const scenes = await parsePdf(
+      const result = await parsePdf(
         { kind: "path", path },
         (page, total) => {
           setStatus(`Reading page ${page} of ${total}`);
@@ -225,15 +225,24 @@ function App() {
         importAbort.current.signal,
       );
       const name = path.split(/[\\/]/).pop()?.replace(/\.pdf$/i, "") ?? "Untitled";
-      setProject((current) => ({ ...current, name, sourceName: path, scenes }));
-      setActiveId(scenes[0].id);
-      setStatus(`${scenes.length} pages imported`);
+      setProject((current) => ({ ...current, name, sourceName: path, scenes: result.scenes }));
+      setActiveId(result.scenes[0].id);
+      setStatus(formatImportStatus(result.scenes.length, result.skippedPages));
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not read this PDF");
     } finally {
       setImportProgress(null);
       importAbort.current = null;
     }
+  }
+
+  function formatImportStatus(imported: number, skipped: number[]): string {
+    if (skipped.length === 0) {
+      return `${imported} pages imported`;
+    }
+    const sample = skipped.slice(0, 3).join(", ");
+    const more = skipped.length > 3 ? `, +${skipped.length - 3} more` : "";
+    return `${imported} pages imported · ${skipped.length} skipped (no text): ${sample}${more}`;
   }
 
   async function pickAndImportPdf() {
