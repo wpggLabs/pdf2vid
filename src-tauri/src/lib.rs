@@ -28,6 +28,7 @@ pub fn run() {
             commands::is_model_installed,
             commands::read_pdf_file,
             commands::check_tts_engine,
+            commands::cancel_model_download,
             commands::download_model,
             commands::delete_model,
             commands::translate_text,

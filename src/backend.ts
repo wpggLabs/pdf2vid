@@ -109,6 +109,10 @@ export async function onModelComplete(
   );
 }
 
+export function cancelModelDownload(): Promise<string | null> {
+  return invoke<string | null>("cancel_model_download");
+}
+
 export function isModelInstalled(modelId: string): Promise<boolean> {
   return invoke("is_model_installed", { modelId });
 }

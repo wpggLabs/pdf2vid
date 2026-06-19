@@ -10,8 +10,6 @@ use crate::types::{
 };
 use base64::Engine as _;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
 fn project_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -109,23 +107,28 @@ pub async fn download_model(
     app: AppHandle,
     model_id: String,
 ) -> Result<String, String> {
-    let cancel = Arc::new(AtomicBool::new(false));
-    let model_id_clone = model_id.clone();
-    let app_clone = app.clone();
-    let cancel_clone = cancel.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let runtime = tokio::runtime::Handle::current();
-        runtime.block_on(async move {
-            models::download_model(&app_clone, &model_id_clone, cancel_clone).await
-        })
-    })
-    .await
-    .map_err(|e| format!("Task join error: {e}"))?;
+    // Per-download cancel flag is registered in the global AppState. This
+    // is the same pattern as the export job so the user can cancel a long
+    // model download from the UI. If the user starts a second download the
+    // first flag is set so the older one cleans up.
+    let state = app.state::<AppState>();
+    let cancel = state.start_model_download(model_id.clone()).await;
+
+    let result = models::download_model(&app, &model_id, cancel).await;
+
+    state.finish_model_download(&model_id).await;
+
     let _ = app.emit(
         "model:complete",
         serde_json::json!({"modelId": model_id, "success": result.is_ok()}),
     );
     result
+}
+
+#[tauri::command]
+pub async fn cancel_model_download(app: AppHandle) -> Result<Option<String>, String> {
+    let state = app.state::<AppState>();
+    Ok(state.cancel_model_download().await)
 }
 
 #[tauri::command]

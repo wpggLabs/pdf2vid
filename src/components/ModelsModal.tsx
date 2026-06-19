@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { X, Download, Trash, Check } from "@phosphor-icons/react";
-import { downloadModel, deleteModel, getModels, onModelProgress, onModelComplete } from "../backend";
+import { X, Download, Trash, Check, Stop } from "@phosphor-icons/react";
+import { cancelModelDownload, deleteModel, downloadModel, getModels, onModelProgress, onModelComplete } from "../backend";
 import type { ModelInfo, ModelDownloadProgress } from "../api";
 
 interface Props {
@@ -11,6 +11,7 @@ export function ModelsModal({ onClose }: Props) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [progress, setProgress] = useState<Record<string, ModelDownloadProgress>>({});
   const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     getModels().then(setModels).catch((e) => setError(String(e)));
@@ -26,6 +27,7 @@ export function ModelsModal({ onClose }: Props) {
         delete next[modelId];
         return next;
       });
+      setCancelling(false);
     });
     return () => {
       unlistenProgress.then((fn) => fn());
@@ -42,6 +44,16 @@ export function ModelsModal({ onClose }: Props) {
     downloadModel(model.id)
       .then(() => getModels().then(setModels))
       .catch((e) => setError(String(e)));
+  }
+
+  async function handleCancel() {
+    setCancelling(true);
+    try {
+      await cancelModelDownload();
+    } catch (e) {
+      setError(`Cancel failed: ${e}`);
+      setCancelling(false);
+    }
   }
 
   function handleDelete(model: ModelInfo) {
@@ -88,6 +100,14 @@ export function ModelsModal({ onClose }: Props) {
                   <div className="model-progress">
                     <div className="model-progress-bar" style={{ width: `${prog.percent}%` }} />
                     <span>{prog.percent}% · {formatSize(prog.downloaded)} / {formatSize(prog.total)}</span>
+                    <button
+                      className="icon-button"
+                      onClick={handleCancel}
+                      disabled={cancelling}
+                      aria-label="Cancel download"
+                    >
+                      <Stop size={14} />
+                    </button>
                   </div>
                 ) : model.installed ? (
                   <button className="icon-button" onClick={() => handleDelete(model)} aria-label="Remove">
