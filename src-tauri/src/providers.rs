@@ -47,9 +47,9 @@ pub fn provider_list() -> ProviderList {
         voice: vec![
             ProviderOption {
                 id: "edge".into(),
-                label: "Free TTS".into(),
+                label: "edge-tts".into(),
                 kind: ProviderKind::Local,
-                detail: "Free · StreamElements (English) + Google TTS (other languages)".into(),
+                detail: "Free · Microsoft Neural · Requires Python + edge-tts".into(),
                 implemented: true,
                 online: true,
                 key_label: None,
@@ -200,17 +200,15 @@ mod tests {
     }
 
     #[test]
-    fn free_voice_label_is_honest() {
+    fn free_voice_uses_edge_tts() {
         let list = provider_list();
         let free = list.voice.iter().find(|p| p.id == "edge").unwrap();
+        assert_eq!(free.label, "edge-tts");
         assert!(
-            !free.detail.contains("Microsoft Neural"),
-            "Provider description should not claim Microsoft Neural (edge-tts is no longer used)"
+            free.detail.contains("Microsoft Neural"),
+            "Provider description should mention Microsoft Neural"
         );
-        assert!(
-            free.detail.contains("Free"),
-            "Default voice should be marked free"
-        );
+        assert!(free.online, "edge-tts is online (Microsoft endpoint)");
     }
 
     #[test]

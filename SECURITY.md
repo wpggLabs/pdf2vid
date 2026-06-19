@@ -45,5 +45,7 @@ To run the app with zero network access after the initial model download, choose
 the **Piper** voice provider and the **MarianMT** translation provider. Both run
 fully offline once their model files are cached.
 
-edge-tts is the highest-quality free default but requires network at synthesis
-time. The UI tags it as "uses Microsoft online synthesis" so the choice is honest.
+edge-tts is the highest-quality free default but requires Python with the
+`edge-tts` package installed plus network access to Microsoft's endpoint at
+synthesis time. The UI tags it as "Microsoft Neural via Python" so the choice
+is honest.

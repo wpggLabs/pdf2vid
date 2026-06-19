@@ -18,7 +18,7 @@ list is the free default.
 
 | Provider | Tier | Cost | Network | Notes |
 |---|---|---|---|---|
-| **edge-tts** | Free default | Free | Per synthesis (Microsoft) | Microsoft Neural voices (`en-US-JennyNeural`, `es-ES-ElviraNeural`, etc). Highest-quality free voice. |
+| **edge-tts** | Free default | Free | Per synthesis (Microsoft) | Microsoft Neural voices (`en-US-AriaNeural`, `en-US-JennyNeural`, etc). Implemented by shelling out to the `edge-tts` Python package (`pip install edge-tts`) — same approach Hermes agent uses. Highest-quality free voice. |
 | **Piper** | Free fallback | Free | Model download (one-time) | Offline ONNX voices after model download. Smaller, less expressive than edge-tts. |
 | **OpenAI TTS** | BYO key | Per-character (your account) | Per request | `tts-1` model, voices `alloy`/`shimmer`/`onyx` etc. |
 | **ElevenLabs** | BYO key | Per-character (your account) | Per request | Premium neural voices. Voice IDs configurable in Settings. |
@@ -33,7 +33,7 @@ list is the free default.
 
 ## Network and license disclosure
 
-- **edge-tts**: sends scene narration text to `*.api.cognitive.microsoft.com` and receives MP3 audio. No account, no quota for normal use. Microsoft's ToS technically restrict non-Edge use; enforcement is effectively zero and the project is widely used in the OSS ecosystem.
+- **edge-tts**: sends scene narration text to `*.api.cognitive.microsoft.com` and receives MP3 audio. No account, no quota for normal use. Microsoft's ToS technically restrict non-Edge use; enforcement is effectively zero and the project is widely used in the OSS ecosystem. Requires Python 3.8+ with the `edge-tts` package (`pip install edge-tts`).
 - **MarianMT models**: downloaded once from `huggingface.co` (Helsinki-NLP/Opus-MT repos). Most pairs are CC-BY-4.0; some are CC-BY-NC. The model picker in Settings surfaces the license before download.
 - **Piper voices**: downloaded once from `huggingface.co` (rhasspy/piper-voices). Most are CC-BY-4.0.
 - **OpenAI / Google / ElevenLabs**: paid BYO-key tiers. Your key is sent directly from your machine to the provider's API. Keys live in the OS credential store (`keyring` crate).

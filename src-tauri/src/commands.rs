@@ -68,6 +68,24 @@ pub fn list_providers() -> ProviderList {
 }
 
 #[tauri::command]
+pub fn check_tts_engine() -> TtsEngineStatus {
+    let python = crate::edgetts::detect_python_with_edge_tts();
+    TtsEngineStatus {
+        python_available: python.is_some(),
+        python_path: python.map(|p| p.to_string_lossy().to_string()),
+        edge_tts_version: None,
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TtsEngineStatus {
+    pub python_available: bool,
+    pub python_path: Option<String>,
+    pub edge_tts_version: Option<String>,
+}
+
+#[tauri::command]
 pub fn is_model_installed(app: AppHandle, model_id: String) -> bool {
     crate::models::is_model_installed(&app, &model_id)
 }

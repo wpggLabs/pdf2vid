@@ -116,3 +116,13 @@ export function isModelInstalled(modelId: string): Promise<boolean> {
 export function readPdfFile(path: string): Promise<number[]> {
   return invoke<number[]>("read_pdf_file", { path });
 }
+
+export interface TtsEngineStatus {
+  pythonAvailable: boolean;
+  pythonPath: string | null;
+  edgeTtsVersion: string | null;
+}
+
+export function checkTtsEngine(): Promise<TtsEngineStatus> {
+  return invoke("check_tts_engine");
+}

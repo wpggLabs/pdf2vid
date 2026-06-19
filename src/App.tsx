@@ -36,7 +36,7 @@ const defaultProject: Project = {
   language: "English (US)",
   translationProvider: "marian",
   voiceProvider: "edge",
-  voice: "en-US-JennyNeural",
+  voice: "en-US-AriaNeural",
   outputYouTube: true,
   outputTikTok: true,
 };
@@ -89,6 +89,16 @@ function App() {
 
   const playback = useTimelinePlayback(project.scenes);
   const preview = usePreviewVoice();
+  const [ttsReady, setTtsReady] = useState<boolean | null>(null);
+
+  // Check whether Python + edge-tts is available on startup.
+  useEffect(() => {
+    import("./backend").then(({ checkTtsEngine }) => {
+      checkTtsEngine()
+        .then((status) => setTtsReady(status.pythonAvailable))
+        .catch(() => setTtsReady(false));
+    });
+  }, []);
 
   // Pass-through setter for status messages from the translation model prompt.
   const setStatusFromPrompt = useCallback(
@@ -647,7 +657,7 @@ function App() {
                   <span>
                     {voiceProvider.kind === "local"
                       ? voiceProvider.online
-                        ? "Free · uses online synthesis (StreamElements / Google)"
+                        ? "Free · Microsoft Neural via Python"
                         : "Runs on this device"
                       : "Uses your account"}
                   </span>
@@ -682,8 +692,12 @@ function App() {
               <div className="local-note">
                 <Check size={18} weight="fill" />
                 <div>
-                  <strong>Local defaults available</strong>
-                  <span>Free providers keep your document on this device.</span>
+                  <strong>{ttsReady === false ? "edge-tts not detected" : "edge-tts ready"}</strong>
+                  <span>
+                    {ttsReady === false
+                      ? "Install Python then: pip install edge-tts"
+                      : "Microsoft Neural voices via Python. No key required."}
+                  </span>
                 </div>
               </div>
             </>
@@ -819,6 +833,7 @@ function App() {
 function voiceOptionsFor(project: Project): React.ReactElement[] {
   if (project.voiceProvider === "edge") {
     return [
+      <option key="en-US-AriaNeural">Aria · English (US)</option>,
       <option key="en-US-JennyNeural">Jenny · English (US)</option>,
       <option key="en-US-GuyNeural">Guy · English (US)</option>,
       <option key="es-ES-ElviraNeural">Elvira · Spanish</option>,

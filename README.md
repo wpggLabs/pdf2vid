@@ -39,6 +39,17 @@ See [`docs/providers.md`](docs/providers.md) for full per-provider details.
 Requirements: Node.js 20+, Rust stable, the
 [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/), FFmpeg, and FFprobe.
 
+For the default free voice provider (`edge-tts`):
+
+```bash
+pip install edge-tts
+```
+
+This is how Hermes agent does it: shells out to the `edge-tts` Python package
+which calls Microsoft's free Edge browser TTS endpoint. No API key, no account,
+no billing. If `edge-tts` isn't available, the app falls back to
+StreamElements (English) and Google Translate TTS (other languages) automatically.
+
 ```bash
 npm install
 npm run tauri dev
