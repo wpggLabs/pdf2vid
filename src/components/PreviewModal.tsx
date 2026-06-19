@@ -14,8 +14,11 @@ interface Props {
 
 /**
  * Full-screen preview modal: shows the active scene large, plays synthesized
- * audio for narration, and exposes Play/Pause/Skip transport. This is what
- * the user sees when they click the Preview tab in the topbar.
+ * audio for narration, and exposes Play/Pause/Skip transport.
+ *
+ * Scene-keyed request IDs prevent stale `previewVoice` responses from
+ * overwriting the audio for the currently visible scene when the user
+ * clicks Skip quickly.
  */
 export function PreviewModal({ onClose, scene, voiceProvider, voice, scenes, onSceneChange }: Props) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -23,29 +26,27 @@ export function PreviewModal({ onClose, scene, voiceProvider, voice, scenes, onS
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const requestSeq = useRef(0);
 
-  // Generate audio for the current scene.
+  // Generate audio for the current scene. Bumping the sequence number on
+  // every dependency change ensures that an in-flight request from an older
+  // scene can't clobber the result for the newer scene.
   useEffect(() => {
-    let cancelled = false;
+    const mySeq = ++requestSeq.current;
     setLoading(true);
     setError(null);
     setAudioUrl(null);
     previewVoice(voiceProvider, voice, scene.script)
       .then((url) => {
-        if (!cancelled) {
-          setAudioUrl(url);
-          setLoading(false);
-        }
+        if (mySeq !== requestSeq.current) return; // stale
+        setAudioUrl(url);
+        setLoading(false);
       })
       .catch((e) => {
-        if (!cancelled) {
-          setError(String(e));
-          setLoading(false);
-        }
+        if (mySeq !== requestSeq.current) return; // stale
+        setError(String(e));
+        setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
   }, [scene.id, scene.script, voiceProvider, voice]);
 
   // Bind audio element events.
@@ -64,6 +65,17 @@ export function PreviewModal({ onClose, scene, voiceProvider, voice, scenes, onS
       el.removeEventListener("ended", onEnded);
     };
   }, [audioUrl]);
+
+  // Stop the audio when the scene changes so the previous narration
+  // doesn't keep playing under a different image.
+  useEffect(() => {
+    const el = audioRef.current;
+    if (el) {
+      el.pause();
+      el.currentTime = 0;
+    }
+    setPlaying(false);
+  }, [scene.id]);
 
   const togglePlay = () => {
     const el = audioRef.current;
