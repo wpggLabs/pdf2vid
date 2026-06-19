@@ -260,5 +260,15 @@ pub async fn start_export(
 
 #[tauri::command]
 pub async fn cancel_export(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
-    Ok(state.cancel_job().await)
+    let job_id = state.cancel_job().await;
+    // Also kill any active FFmpeg child. cancel_job sets the flag which
+    // the render task polls; start_kill is the immediate signal that
+    // terminates the process even if the render task is mid-FFmpeg-wait.
+    if let Some(slot) = state.take_ffmpeg_child().await {
+        let mut guard = slot.lock().await;
+        if let Some(child) = guard.as_mut() {
+            let _ = child.start_kill();
+        }
+    }
+    Ok(job_id)
 }

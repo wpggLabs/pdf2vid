@@ -7,7 +7,6 @@ use crate::state::{cache_dir, AppState};
 use crate::types::{ExportComplete, ExportError, ExportProgress, ExportRequest, Project, TranslationWarning};
 use base64::Engine;
 use std::path::PathBuf;
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
@@ -20,9 +19,10 @@ pub async fn run_export(
     let job_id = request.job_id.clone();
     let cancel_flag = state.start_job(job_id.clone()).await;
 
-    let result = run_export_inner(app.clone(), cancel_flag.clone(), request).await;
+    let result = run_export_inner(app.clone(), state.clone(), cancel_flag.clone(), request).await;
 
     state.finish_job(&job_id).await;
+    state.clear_ffmpeg_child().await;
 
     match result {
         Ok(complete) => {
@@ -43,6 +43,7 @@ pub async fn run_export(
 
 async fn run_export_inner(
     app: AppHandle,
+    state: tauri::State<'_, AppState>,
     cancel: Arc<AtomicBool>,
     request: ExportRequest,
 ) -> Result<ExportComplete, String> {
@@ -287,12 +288,15 @@ async fn run_export_inner(
         emit_progress(&app, &request.job_id, "Composing", "Rendering YouTube 1920×1080", 78, None, None);
         let path = output_dir.join(format!("{}-youtube.mp4", safe_name));
         compose_video(
+            state.clone(),
+            cancel.clone(),
             &translated_scenes,
             &visual_paths,
             &audio_paths,
             Aspect::Youtube,
             &path,
-        )?;
+        )
+        .await?;
         youtube_path = Some(path.to_string_lossy().to_string());
     }
 
@@ -303,12 +307,15 @@ async fn run_export_inner(
         emit_progress(&app, &request.job_id, "Composing", "Rendering TikTok 1080×1920", 90, None, None);
         let path = output_dir.join(format!("{}-tiktok.mp4", safe_name));
         compose_video(
+            state.clone(),
+            cancel.clone(),
             &translated_scenes,
             &visual_paths,
             &audio_paths,
             Aspect::Tiktok,
             &path,
-        )?;
+        )
+        .await?;
         tiktok_path = Some(path.to_string_lossy().to_string());
     }
 
@@ -342,13 +349,23 @@ fn emit_progress(
     let _ = app.emit("export:progress", &payload);
 }
 
-fn compose_video(
+/// Run FFmpeg as a cancellable child process. The child handle is
+/// registered in AppState so a concurrent `cancel_export` call can
+/// terminate it via `start_kill`. The cancel flag is polled between
+/// stages as a secondary signal (in case the OS kill races).
+async fn compose_video(
+    state: tauri::State<'_, AppState>,
+    cancel: Arc<AtomicBool>,
     scenes: &[crate::types::Scene],
     visuals: &[(String, PathBuf)],
     audios: &[(String, PathBuf)],
     aspect: Aspect,
     output: &PathBuf,
 ) -> Result<(), String> {
+    if cancel.load(Ordering::SeqCst) {
+        return Err("Cancelled".into());
+    }
+
     let ffmpeg = ensure_ffmpeg_or_error()?;
     let (w, h) = aspect.dimensions();
     let mut inputs: Vec<String> = Vec::new();
@@ -356,6 +373,9 @@ fn compose_video(
     let mut audio_inputs: Vec<String> = Vec::new();
 
     for (i, scene) in scenes.iter().enumerate() {
+        if cancel.load(Ordering::SeqCst) {
+            return Err("Cancelled".into());
+        }
         if !scene.selected {
             continue;
         }
@@ -406,34 +426,83 @@ fn compose_video(
         n = audio_inputs.len()
     ));
 
-    let mut cmd = std::process::Command::new(&ffmpeg);
-    cmd.arg("-y");
-    cmd.args(&inputs);
-    cmd.args(["-filter_complex", &filter]);
-    cmd.args(["-map", "[vout]", "-map", "[aout]"]);
-    cmd.args(["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p"]);
-    cmd.args(["-c:a", "aac", "-b:a", "192k"]);
-    cmd.args(["-movflags", "+faststart"]);
-    cmd.arg(output);
+    let mut cmd = tokio::process::Command::new(&ffmpeg);
+    cmd.arg("-y")
+        .args(&inputs)
+        .args(["-filter_complex", &filter])
+        .args(["-map", "[vout]", "-map", "[aout]"])
+        .args(["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p"])
+        .args(["-c:a", "aac", "-b:a", "192k"])
+        .args(["-movflags", "+faststart"])
+        .arg(output)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
 
-    // On Windows, std::process::Command spawns a console window by default
-    // unless the parent has one. Use CREATE_NO_WINDOW so FFmpeg doesn't
-    // flash a cmd window at the user during export.
+    // CREATE_NO_WINDOW on Windows so FFmpeg doesn't flash a cmd window.
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = cmd
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|e| format!("Failed to spawn ffmpeg: {e}"))?;
+    let child_slot: Arc<tokio::sync::Mutex<Option<tokio::process::Child>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
+    state
+        .replace_ffmpeg_child_inner(child_slot.clone())
+        .await;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    let child = cmd.spawn().map_err(|e| format!("Failed to spawn ffmpeg: {e}"))?;
+
+    // Stash the actual PID into the slot so cancel_export can kill it.
+    {
+        let mut guard = child_slot.lock().await;
+        *guard = Some(child);
+    }
+
+    // Wait for the child, polling the cancel flag in case `start_kill`
+    // races. Use a tight poll so cancellation feels responsive.
+    let status = loop {
+        {
+            let mut guard = child_slot.lock().await;
+            if let Some(c) = guard.as_mut() {
+                match c.try_wait() {
+                    Ok(Some(status)) => break status,
+                    Ok(None) => {}
+                    Err(e) => return Err(format!("ffmpeg wait failed: {e}")),
+                }
+            } else {
+                // Someone else took the child; treat as cancellation.
+                return Err("Cancelled".into());
+            }
+        }
+        if cancel.load(Ordering::SeqCst) {
+            // Best-effort kill and return cancellation error.
+            let mut guard = child_slot.lock().await;
+            if let Some(c) = guard.as_mut() {
+                let _ = c.start_kill();
+            }
+            return Err("Cancelled".into());
+        }
+        // 100ms poll keeps UI responsive without burning CPU.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    };
+
+    // Drain stderr so the error message has the FFmpeg output if it failed.
+    let mut stderr_bytes = Vec::new();
+    {
+        let mut guard = child_slot.lock().await;
+        if let Some(c) = guard.as_mut() {
+            if let Some(mut stderr) = c.stderr.take() {
+                use tokio::io::AsyncReadExt;
+                let _ = stderr.read_to_end(&mut stderr_bytes).await;
+            }
+        }
+    }
+
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&stderr_bytes);
         return Err(format!("FFmpeg failed: {}", first_lines(&stderr, 5)));
     }
     Ok(())

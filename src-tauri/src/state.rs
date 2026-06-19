@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 pub struct AppState {
     pub active_job: Mutex<Option<JobHandle>>,
     pub model_download: Mutex<Option<ModelDownloadHandle>>,
+    pub ffmpeg_child: Mutex<Option<Arc<Mutex<Option<tokio::process::Child>>>>>,
 }
 
 pub struct JobHandle {
@@ -82,6 +83,40 @@ impl AppState {
             h.cancel_flag.store(true, Ordering::SeqCst);
             h.model_id.clone()
         })
+    }
+
+    /// Register the active FFmpeg child process. Only one render runs at
+    /// a time, so this is a single slot. Calling it twice without
+    /// `finish_ffmpeg` in between kills the previous child.
+    pub async fn set_ffmpeg_child(&self, child: tokio::process::Child) {
+        let mut slot = self.ffmpeg_child.lock().await;
+        if let Some(prev) = slot.as_ref() {
+            // Best-effort kill of any leftover child.
+            let mut prev = prev.lock().await;
+            if let Some(c) = prev.as_mut() {
+                let _ = c.start_kill();
+            }
+        }
+        *slot = Some(Arc::new(Mutex::new(Some(child))));
+    }
+
+    /// Replace the inner child handle (used by the render pipeline to
+    /// swap the placeholder for the real spawned process).
+    pub async fn replace_ffmpeg_child_inner(
+        &self,
+        slot: Arc<Mutex<Option<tokio::process::Child>>>,
+    ) {
+        let mut current = self.ffmpeg_child.lock().await;
+        *current = Some(slot);
+    }
+
+    pub async fn take_ffmpeg_child(&self) -> Option<Arc<Mutex<Option<tokio::process::Child>>>> {
+        self.ffmpeg_child.lock().await.clone()
+    }
+
+    pub async fn clear_ffmpeg_child(&self) {
+        let mut slot = self.ffmpeg_child.lock().await;
+        *slot = None;
     }
 }
 
