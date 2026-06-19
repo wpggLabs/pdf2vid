@@ -4,7 +4,6 @@ import {
   Play, Plus, SkipBack, SkipForward, SpeakerHigh, Trash, Waveform, Warning,
 } from "@phosphor-icons/react";
 import "./App.css";
-import { parsePdf } from "./pdf";
 import { ExportModal } from "./components/ExportModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { ModelsModal } from "./components/ModelsModal";
@@ -12,36 +11,17 @@ import { ProgressModal } from "./components/ProgressModal";
 import { ProviderField } from "./components/ProviderField";
 import { PreviewModal } from "./components/PreviewModal";
 import {
-  getProviderList, getSystemStatus, loadProject, saveProject, startExport as backendExport,
+  getProviderList, getSystemStatus, startExport as backendExport,
 } from "./backend";
 import { usePreviewVoice } from "./hooks/usePreviewVoice";
 import { useTimelinePlayback } from "./hooks/useTimelinePlayback";
 import { useTranslationModelPrompt } from "./hooks/useTranslationModelPrompt";
 import { voiceOptionsFor } from "./lib/voiceOptions";
+import { useProjectState } from "./state/useProjectState";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { ProviderOption } from "./types";
-import type { Scene, Project, SystemStatus } from "./types";
+import type { SystemStatus } from "./types";
 import type { ProviderList } from "./api";
-
-const demoScenes: Scene[] = [
-  {
-    id: "welcome", page: 1, title: "Start with a PDF",
-    script: "Import a PDF to build your first narrated video.", duration: 7,
-    selected: true, thumbnail: "",
-  },
-];
-
-const defaultProject: Project = {
-  name: "Untitled project",
-  sourceName: "No PDF imported",
-  scenes: demoScenes,
-  language: "English (US)",
-  translationProvider: "marian",
-  voiceProvider: "edge",
-  voice: "en-US-AriaNeural",
-  outputYouTube: true,
-  outputTikTok: true,
-};
 
 function seconds(value: number) {
   const minutes = Math.floor(value / 60);
@@ -57,30 +37,38 @@ type TimelineTab = "timeline" | "subtitles";
 type InspectorTab = "script" | "scene";
 
 function App() {
-  const [project, setProject] = useState<Project>(defaultProject);
+  const proj = useProjectState();
+  const {
+    project,
+    setProject,
+    activeId,
+    setActiveId,
+    active,
+    importProgress,
+    status,
+    setStatus,
+    importPdf,
+    importPdfFromPath,
+    updateScene,
+    removeScene,
+  } = proj;
   const [providers, setProviders] = useState<ProviderList | null>(null);
-  const [activeId, setActiveId] = useState(project.scenes[0].id);
   const [aspect, setAspect] = useState<"youtube" | "tiktok">("youtube");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [progressJobId, setProgressJobId] = useState<string | null>(null);
-  const [status, setStatus] = useState("Loading project…");
   const [system, setSystem] = useState<SystemStatus>({
     ffmpeg: false, ffprobe: false, platform: "Browser preview", ffmpegSidecarReady: false,
   });
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("scenes");
   const [timelineTab, setTimelineTab] = useState<TimelineTab>("timeline");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("script");
-  const [importProgress, setImportProgress] = useState<{ page: number; total: number } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const saveTimer = useRef<number | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
-  const importAbort = useRef<AbortController | null>(null);
 
-  const active = project.scenes.find((scene) => scene.id === activeId) ?? project.scenes[0];
   const duration = useMemo(
     () =>
       project.scenes
@@ -102,39 +90,31 @@ function App() {
     });
   }, []);
 
-  // Pass-through setter for status messages from the translation model prompt.
-  const setStatusFromPrompt = useCallback(
-    (message: string) => setStatus(message),
-    [],
-  );
   const modelPrompt = useTranslationModelPrompt(
     project.translationProvider,
     project.language,
-    setStatusFromPrompt,
+    setStatus,
   );
 
-  // Initial load + system status
+  // Initial load + system status (project is hydrated by useProjectState;
+  // here we load providers and system info that live outside the project).
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const [saved, list, status] = await Promise.all([
-          loadProject(),
+        const [list, status] = await Promise.all([
           getProviderList(),
           getSystemStatus(),
         ]);
         if (!mounted) return;
-        if (saved) {
-          setProject(saved);
-          setActiveId(saved.scenes[0]?.id ?? demoScenes[0].id);
-          setStatus("Project loaded");
-        } else {
-          setStatus("Ready");
-        }
         setProviders(list);
         setSystem(status);
         if (!status.ffmpeg && !status.ffmpegSidecarReady) {
-          setStatus("Ready · Install FFmpeg or bundle the sidecar to render videos");
+          setStatus((prev) =>
+            prev === "Ready" || prev === "Project loaded"
+              ? "Ready · Install FFmpeg or bundle the sidecar to render videos"
+              : prev,
+          );
         }
       } catch (error) {
         if (mounted) setStatus(`Could not initialize: ${error}`);
@@ -145,7 +125,7 @@ function App() {
     };
   }, []);
 
-  // Refresh system status on window focus so installing FFmpeg while the app is open gets picked up
+  // Refresh system status on window focus.
   useEffect(() => {
     const refresh = () => {
       getSystemStatus()
@@ -163,90 +143,6 @@ function App() {
     return () => window.removeEventListener("focus", refresh);
   }, []);
 
-  // Debounced auto-save; flush on unmount
-  useEffect(() => {
-    if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => {
-      saveProject(project).catch((error) => setStatus(`Save failed: ${error}`));
-    }, 600);
-    return () => {
-      if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    };
-  }, [project]);
-
-  // Flush save on unmount
-  useEffect(() => {
-    return () => {
-      // Best-effort sync save when component unmounts
-      const json = JSON.stringify(project);
-      try {
-        navigator.sendBeacon?.("/save-project", json);
-      } catch {
-        // ignore
-      }
-    };
-  }, [project]);
-
-  async function importPdf(file?: File) {
-    if (!file) return;
-    importAbort.current = new AbortController();
-    setStatus("Reading PDF…");
-    setImportProgress({ page: 0, total: 0 });
-    try {
-      const result = await parsePdf(
-        { kind: "file", file },
-        (page, total) => {
-          setStatus(`Reading page ${page} of ${total}`);
-          setImportProgress({ page, total });
-        },
-        importAbort.current.signal,
-      );
-      const name = file.name.replace(/\.pdf$/i, "");
-      setProject((current) => ({ ...current, name, sourceName: file.name, scenes: result.scenes }));
-      setActiveId(result.scenes[0].id);
-      setStatus(formatImportStatus(result.scenes.length, result.skippedPages));
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not read this PDF");
-    } finally {
-      setImportProgress(null);
-      importAbort.current = null;
-    }
-  }
-
-  async function importPdfFromPath(path: string) {
-    importAbort.current = new AbortController();
-    setStatus("Reading PDF…");
-    setImportProgress({ page: 0, total: 0 });
-    try {
-      const result = await parsePdf(
-        { kind: "path", path },
-        (page, total) => {
-          setStatus(`Reading page ${page} of ${total}`);
-          setImportProgress({ page, total });
-        },
-        importAbort.current.signal,
-      );
-      const name = path.split(/[\\/]/).pop()?.replace(/\.pdf$/i, "") ?? "Untitled";
-      setProject((current) => ({ ...current, name, sourceName: path, scenes: result.scenes }));
-      setActiveId(result.scenes[0].id);
-      setStatus(formatImportStatus(result.scenes.length, result.skippedPages));
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not read this PDF");
-    } finally {
-      setImportProgress(null);
-      importAbort.current = null;
-    }
-  }
-
-  function formatImportStatus(imported: number, skipped: number[]): string {
-    if (skipped.length === 0) {
-      return `${imported} pages imported`;
-    }
-    const sample = skipped.slice(0, 3).join(", ");
-    const more = skipped.length > 3 ? `, +${skipped.length - 3} more` : "";
-    return `${imported} pages imported · ${skipped.length} skipped (no text): ${sample}${more}`;
-  }
-
   async function pickAndImportPdf() {
     try {
       const picked = await openDialog({
@@ -258,24 +154,6 @@ function App() {
     } catch (e) {
       setStatus(`File picker failed: ${e}`);
     }
-  }
-
-  function updateScene(id: string, changes: Partial<Scene>) {
-    setProject((current) => ({
-      ...current,
-      scenes: current.scenes.map((scene) =>
-        scene.id === id ? { ...scene, ...changes } : scene,
-      ),
-    }));
-  }
-
-  function removeScene(id: string) {
-    setProject((current) => {
-      if (current.scenes.length === 1) return current;
-      const scenes = current.scenes.filter((scene) => scene.id !== id);
-      setActiveId(scenes[0].id);
-      return { ...current, scenes };
-    });
   }
 
   async function startExport(jobId: string, outputDir: string) {
@@ -402,7 +280,10 @@ function App() {
             type="file"
             accept="application/pdf"
             hidden
-            onChange={(event) => importPdf(event.target.files?.[0])}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) importPdf(file);
+            }}
           />
           <button className="import-button" onClick={pickAndImportPdf}>
             <FilePdf size={20} />Import PDF
