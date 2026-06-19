@@ -100,6 +100,20 @@ pub struct ExportComplete {
     pub job_id: String,
     pub youtube_path: Option<String>,
     pub tiktok_path: Option<String>,
+    /// Scenes whose translation provider reported an error. The source script
+    /// is used as a fallback so the export still completes; the UI should
+    /// surface this list so the user knows the translation didn't run.
+    #[serde(default)]
+    pub translation_warnings: Vec<TranslationWarning>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslationWarning {
+    pub scene_id: String,
+    pub page: u32,
+    pub provider: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

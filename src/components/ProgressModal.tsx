@@ -1,7 +1,13 @@
-import { X } from "@phosphor-icons/react";
+import { X, Warning } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { cancelExport, getSystemStatus, onExportComplete, onExportError, onExportProgress } from "../backend";
-import type { ExportProgress } from "../api";
+import type { ExportProgress, TranslationWarning } from "../api";
+
+interface DoneState {
+  youtubePath: string | null;
+  tiktokPath: string | null;
+  translationWarnings: TranslationWarning[];
+}
 
 interface Props {
   jobId: string;
@@ -10,7 +16,7 @@ interface Props {
 
 export function ProgressModal({ jobId, onClose }: Props) {
   const [progress, setProgress] = useState<ExportProgress | null>(null);
-  const [done, setDone] = useState<{ youtubePath: string | null; tiktokPath: string | null } | null>(null);
+  const [done, setDone] = useState<DoneState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [systemNote, setSystemNote] = useState<string | null>(null);
 
@@ -28,7 +34,16 @@ export function ProgressModal({ jobId, onClose }: Props) {
     const unlisteners: Array<() => void> = [];
     (async () => {
       unlisteners.push(await onExportProgress((p) => p.jobId === jobId && setProgress(p)));
-      unlisteners.push(await onExportComplete((c) => c.jobId === jobId && setDone(c)));
+      unlisteners.push(
+        await onExportComplete((c) =>
+          c.jobId === jobId &&
+          setDone({
+            youtubePath: c.youtubePath,
+            tiktokPath: c.tiktokPath,
+            translationWarnings: c.translationWarnings ?? [],
+          }),
+        ),
+      );
       unlisteners.push(await onExportError((e) => e.jobId === jobId && setError(e.message)));
     })();
     return () => unlisteners.forEach((fn) => fn());
@@ -93,6 +108,32 @@ export function ProgressModal({ jobId, onClose }: Props) {
               <p>
                 <strong>TikTok:</strong> <code>{done.tiktokPath}</code>
               </p>
+            )}
+            {done.translationWarnings.length > 0 && (
+              <div className="progress-warnings">
+                <p>
+                  <Warning size={16} />
+                  <strong>
+                    {done.translationWarnings.length} scene
+                    {done.translationWarnings.length === 1 ? "" : "s"} used the source
+                    script because translation wasn't available.
+                  </strong>
+                </p>
+                <ul>
+                  {done.translationWarnings.slice(0, 5).map((w) => (
+                    <li key={w.sceneId}>
+                      Page {w.page}: {w.provider} not implemented
+                    </li>
+                  ))}
+                  {done.translationWarnings.length > 5 && (
+                    <li>...and {done.translationWarnings.length - 5} more</li>
+                  )}
+                </ul>
+                <p className="progress-warning-hint">
+                  Switch translation provider in the inspector to OpenAI or Google
+                  Cloud for actual translation.
+                </p>
+              </div>
             )}
             <button className="export-primary" onClick={onClose}>
               Done

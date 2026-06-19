@@ -43,10 +43,18 @@ export interface ExportProgress {
   total: number | null;
 }
 
+export interface TranslationWarning {
+  sceneId: string;
+  page: number;
+  provider: string;
+  message: string;
+}
+
 export interface ExportComplete {
   jobId: string;
   youtubePath: string | null;
   tiktokPath: string | null;
+  translationWarnings: TranslationWarning[];
 }
 
 export interface ExportError {

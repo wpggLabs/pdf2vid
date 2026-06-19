@@ -4,7 +4,7 @@ use crate::ffmpeg::{ensure_ffmpeg_or_error, ensure_ffprobe_or_error, Aspect};
 use crate::models;
 use crate::providers::edge_voice_for_language;
 use crate::state::{cache_dir, AppState};
-use crate::types::{ExportComplete, ExportError, ExportProgress, ExportRequest, Project};
+use crate::types::{ExportComplete, ExportError, ExportProgress, ExportRequest, Project, TranslationWarning};
 use base64::Engine;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -73,6 +73,7 @@ async fn run_export_inner(
     let mut current = 0u32;
 
     // Stage 1: translate
+    let mut translation_warnings: Vec<TranslationWarning> = Vec::new();
     let translated_scenes = if project.translation_provider == "marian" || is_default_translator(&project) {
         if !is_english(&project.language) {
             emit_progress(
@@ -104,10 +105,27 @@ async fn run_export_inner(
                 )
                 .await;
                 let mut s = scene.clone();
-                s.translated_script = match result {
-                    Ok(r) => Some(r.translated_text),
-                    Err(_) => Some(scene.script.clone()), // fallback: keep original
-                };
+                match result {
+                    Ok(r) => s.translated_script = Some(r.translated_text),
+                    Err(e) => {
+                        // MarianMT local inference is not implemented yet.
+                        // Don't pretend the translation worked: record a warning
+                        // and fall back to the source script so the export still
+                        // completes (the user gets a video, not a hard error).
+                        translation_warnings.push(TranslationWarning {
+                            scene_id: scene.id.clone(),
+                            page: scene.page,
+                            provider: "marian".into(),
+                            message: format!(
+                                "MarianMT inference is not yet implemented; \
+                                 using source text for page {}",
+                                scene.page
+                            ),
+                        });
+                        log::warn!("MarianMT failed for page {}: {}", scene.page, e);
+                        s.translated_script = Some(scene.script.clone());
+                    }
+                }
                 translated.push(s);
                 emit_progress(
                     &app,
@@ -300,6 +318,7 @@ async fn run_export_inner(
         job_id: request.job_id,
         youtube_path,
         tiktok_path,
+        translation_warnings,
     })
 }
 
@@ -616,6 +635,47 @@ mod tests {
     fn sanitize_strips_path_chars() {
         assert_eq!(sanitize("hello/world:test"), "hello_world_test");
         assert_eq!(sanitize("My Project 2024"), "My_Project_2024");
+    }
+
+    #[test]
+    fn is_default_translator_matches() {
+        let mut p = make_test_project();
+        p.translation_provider = "marian".into();
+        assert!(is_default_translator(&p));
+        p.translation_provider = "".into();
+        assert!(is_default_translator(&p));
+        p.translation_provider = "openai".into();
+        assert!(!is_default_translator(&p));
+    }
+
+    #[test]
+    fn is_english_recognizes_us() {
+        assert!(is_english("English (US)"));
+        assert!(is_english(""));
+        assert!(!is_english("Spanish"));
+    }
+
+    fn make_test_project() -> Project {
+        Project {
+            name: "Test".into(),
+            source_name: "test.pdf".into(),
+            scenes: vec![crate::types::Scene {
+                id: "1".into(),
+                page: 1,
+                title: "Scene".into(),
+                script: "Hello world".into(),
+                translated_script: None,
+                duration: 5,
+                selected: true,
+                thumbnail: "".into(),
+            }],
+            language: "Spanish".into(),
+            translation_provider: "marian".into(),
+            voice_provider: "edge".into(),
+            voice: "es-ES-ElviraNeural".into(),
+            output_you_tube: true,
+            output_tik_tok: false,
+        }
     }
 
     #[test]

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowsOut, Check, Export, FilePdf, Gear, List, Pause,
-  Play, Plus, SkipBack, SkipForward, SpeakerHigh, Trash, Waveform,
+  Play, Plus, SkipBack, SkipForward, SpeakerHigh, Trash, Waveform, Warning,
 } from "@phosphor-icons/react";
 import "./App.css";
 import { parsePdf } from "./pdf";
@@ -700,6 +700,19 @@ function App() {
                   </span>
                 </div>
               </div>
+              {project.translationProvider === "marian" && project.language !== "English (US)" && (
+                <div className="local-note warn">
+                  <Warning size={18} weight="fill" />
+                  <div>
+                    <strong>MarianMT translation not yet implemented</strong>
+                    <span>
+                      Picking a non-English output with MarianMT will keep the source
+                      script and show a warning after export. Use OpenAI or Google
+                      Cloud for actual translation.
+                    </span>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <div className="inspector-loading">Loading providers…</div>

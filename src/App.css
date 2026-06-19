@@ -66,6 +66,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .progress-done,.progress-error{padding:18px 14px;display:flex;flex-direction:column;gap:10px;font-size:12px;line-height:1.5}
 .progress-done code{background:#14171b;padding:1px 6px;border-radius:3px;font-size:10px}
 .progress-error{color:#ff9b9b}
+.progress-warnings{margin:6px 0;padding:10px 12px;background:#3a2c1a;border:1px solid #6b5524;border-radius:4px;color:#ffd28a;font-size:11px;line-height:1.4}
+.progress-warnings>p{display:flex;align-items:center;gap:6px;margin:0 0 6px}
+.progress-warnings ul{margin:4px 0 6px;padding-left:20px;max-height:90px;overflow:auto;font-family:"IBM Plex Mono",monospace;font-size:10px}
+.progress-warnings li{padding:1px 0}
+.progress-warning-hint{margin:6px 0 0;font-size:10px;color:#c4a878}
 .status-dot.warn{background:#d4a64f;box-shadow:0 0 6px #d4a64f66}
 .status-dot.ready{background:var(--green)}
 
@@ -89,6 +94,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .status-action{margin-left:8px;border:1px solid #2c4a78;background:#1d3057;color:#7ca9ef;padding:3px 9px;border-radius:3px;font-size:10px;cursor:pointer}
 .status-action:hover:not(:disabled){background:#243d6e;border-color:#3a5a8a}
 .status-action:disabled{opacity:.5;cursor:not-allowed}
+
+.local-note.warn{border-color:#6b5524;background:#3a2c1a;color:#ffd28a}
 
 .preview-backdrop{background:#050608dd}
 .preview-modal{width:min(960px,96vw);background:#0d0f12;border:1px solid #2a2e36;border-radius:8px;box-shadow:0 30px 80px #000c;display:flex;flex-direction:column;max-height:96vh;overflow:hidden}
