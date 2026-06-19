@@ -10,24 +10,33 @@ function sentence(text: string) {
 }
 
 /**
- * Streams a PDF file into pdfjs without loading the whole file into memory.
- * Use the `onProgress` callback for per-page progress, and pass `signal`
- * to cancel a slow parse.
+ * Parse a PDF file into scenes. Tries blob URL streaming first (less memory
+ * for huge PDFs), falls back to ArrayBuffer if the webview blocks the blob
+ * fetch (some WebView2 builds do).
  */
 export async function parsePdf(
   file: File,
   onProgress?: (page: number, total: number) => void,
   signal?: AbortSignal,
 ): Promise<Scene[]> {
-  // Create a blob URL so pdfjs can stream chunks instead of us
-  // materializing the entire ArrayBuffer up front.
-  const blobUrl = URL.createObjectURL(file);
+  try {
+    return await parsePdfViaBlob(file, onProgress, signal);
+  } catch (blobError) {
+    console.warn("blob URL parse failed, falling back to ArrayBuffer:", blobError);
+    return await parsePdfViaBuffer(file, onProgress, signal);
+  }
+}
 
+async function parsePdfViaBlob(
+  file: File,
+  onProgress?: (page: number, total: number) => void,
+  signal?: AbortSignal,
+): Promise<Scene[]> {
+  const blobUrl = URL.createObjectURL(file);
   let document;
   try {
     document = await pdfjs.getDocument({
       url: blobUrl,
-      // disable range requests if the file:// origin doesn't support them
       disableStream: false,
       disableAutoFetch: false,
     }).promise;
@@ -35,7 +44,25 @@ export async function parsePdf(
     URL.revokeObjectURL(blobUrl);
     throw e;
   }
+  return extractScenes(document, onProgress, signal, blobUrl);
+}
 
+async function parsePdfViaBuffer(
+  file: File,
+  onProgress?: (page: number, total: number) => void,
+  signal?: AbortSignal,
+): Promise<Scene[]> {
+  const buffer = await file.arrayBuffer();
+  const document = await pdfjs.getDocument({ data: buffer }).promise;
+  return extractScenes(document, onProgress, signal, null);
+}
+
+async function extractScenes(
+  document: Awaited<ReturnType<typeof pdfjs.getDocument>["promise"]>,
+  onProgress: ((page: number, total: number) => void) | undefined,
+  signal: AbortSignal | undefined,
+  blobUrl: string | null,
+): Promise<Scene[]> {
   const scenes: Scene[] = [];
   try {
     for (let index = 1; index <= document.numPages; index += 1) {
@@ -70,11 +97,10 @@ export async function parsePdf(
         thumbnail: canvas.toDataURL("image/jpeg", 0.82),
       });
       onProgress?.(index, document.numPages);
-      // Free the page so we don't hold all decoded pages in memory at once.
       page.cleanup();
     }
   } finally {
-    URL.revokeObjectURL(blobUrl);
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
     await document.cleanup();
   }
   return scenes;
