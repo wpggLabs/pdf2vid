@@ -16,53 +16,74 @@ interface Props {
  * Full-screen preview modal: shows the active scene large, plays synthesized
  * audio for narration, and exposes Play/Pause/Skip transport.
  *
- * Scene-keyed request IDs prevent stale `previewVoice` responses from
- * overwriting the audio for the currently visible scene when the user
- * clicks Skip quickly.
+ * The play button is disabled until the audio element reports it can play
+ * the new src (`canplay` event). When the scene changes, the audio is paused
+ * and reset, and the request-sequence guard prevents stale responses from
+ * clobbering the new scene's audio.
  */
 export function PreviewModal({ onClose, scene, voiceProvider, voice, scenes, onSceneChange }: Props) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const requestSeq = useRef(0);
 
-  // Generate audio for the current scene. Bumping the sequence number on
-  // every dependency change ensures that an in-flight request from an older
-  // scene can't clobber the result for the newer scene.
+  // Generate audio for the current scene. The sequence guard discards
+  // stale responses from previous scenes.
   useEffect(() => {
     const mySeq = ++requestSeq.current;
     setLoading(true);
     setError(null);
     setAudioUrl(null);
+    setReady(false);
     previewVoice(voiceProvider, voice, scene.script)
       .then((url) => {
         if (mySeq !== requestSeq.current) return; // stale
         setAudioUrl(url);
-        setLoading(false);
+        // Don't flip loading=false here — wait for canplay below.
       })
       .catch((e) => {
-        if (mySeq !== requestSeq.current) return; // stale
+        if (mySeq !== requestSeq.current) return;
         setError(String(e));
         setLoading(false);
       });
   }, [scene.id, scene.script, voiceProvider, voice]);
 
-  // Bind audio element events.
+  // Wire up audio element events. We rely on `canplay` to know the new
+  // src is decodable, then set ready=true so Play can be enabled.
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
+    const onCanPlay = () => {
+      setReady(true);
+      setLoading(false);
+    };
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
     const onEnded = () => setPlaying(false);
+    const onError = () => {
+      setError(`Audio failed to load`);
+      setLoading(false);
+      setReady(false);
+    };
+    el.addEventListener("canplay", onCanPlay);
     el.addEventListener("play", onPlay);
     el.addEventListener("pause", onPause);
     el.addEventListener("ended", onEnded);
+    el.addEventListener("error", onError);
+    // canplay may have fired before the listener attached (small race).
+    if (el.readyState >= 3 /* HAVE_FUTURE_DATA */) {
+      setReady(true);
+      setLoading(false);
+    }
     return () => {
+      el.removeEventListener("canplay", onCanPlay);
       el.removeEventListener("play", onPlay);
       el.removeEventListener("pause", onPause);
       el.removeEventListener("ended", onEnded);
+      el.removeEventListener("error", onError);
     };
   }, [audioUrl]);
 
@@ -80,8 +101,14 @@ export function PreviewModal({ onClose, scene, voiceProvider, voice, scenes, onS
   const togglePlay = () => {
     const el = audioRef.current;
     if (!el) return;
-    if (playing) el.pause();
-    else el.play().catch(() => undefined);
+    if (playing) {
+      el.pause();
+    } else {
+      const playPromise = el.play();
+      if (playPromise) {
+        playPromise.catch(() => undefined);
+      }
+    }
   };
 
   const selectedScenes = scenes.filter((s) => s.selected);
@@ -94,6 +121,8 @@ export function PreviewModal({ onClose, scene, voiceProvider, voice, scenes, onS
     const next = selectedScenes[Math.min(selectedScenes.length - 1, currentIdx + 1)];
     if (next) onSceneChange(next.id);
   };
+
+  const playDisabled = loading || !!error || !ready;
 
   return (
     <div className="modal-backdrop preview-backdrop" onMouseDown={onClose}>
@@ -131,16 +160,21 @@ export function PreviewModal({ onClose, scene, voiceProvider, voice, scenes, onS
           <button
             className="play"
             onClick={togglePlay}
-            disabled={loading || !!error || !audioUrl}
+            disabled={playDisabled}
             aria-label={playing ? "Pause" : "Play"}
           >
-            {loading ? "…" : playing ? <Pause weight="fill" /> : <Play weight="fill" />}
+            {loading
+              ? "…"
+              : playing
+              ? <Pause weight="fill" />
+              : <Play weight="fill" />}
           </button>
           <button onClick={goNext} aria-label="Next scene">
             <SkipForward weight="fill" />
           </button>
         </div>
 
+        {loading && !error && <p className="preview-loading">Generating audio…</p>}
         {error && <p className="preview-error">{error}</p>}
 
         {audioUrl && <audio ref={audioRef} src={audioUrl} preload="auto" />}

@@ -108,3 +108,4 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .preview-transport button{border:0;background:transparent;color:#cfd2d8;padding:8px;display:grid;place-items:center;cursor:pointer}
 .preview-transport .play{width:46px;height:46px;background:#e6e8eb;color:#16181c;border-radius:50%}
 .preview-transport .play:disabled{opacity:.4;cursor:not-allowed}
+.preview-loading{margin:0 14px 14px;color:#cfd2d8;font-size:11px;text-align:center;opacity:.7}
