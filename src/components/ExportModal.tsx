@@ -1,7 +1,9 @@
-import { X, Export, Gear } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+import { X, Export, Gear, Warning } from "@phosphor-icons/react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { Project } from "../types";
-import { useState } from "react";
+import { dependencyStatus } from "../backend";
+import type { DependencyStatus, InstallHint } from "../backend";
 
 interface Props {
   onClose: () => void;
@@ -12,12 +14,24 @@ interface Props {
 
 export function ExportModal({ onClose, onStart, onOpenSettings, project }: Props) {
   const [busy, setBusy] = useState(false);
+  const [deps, setDeps] = useState<DependencyStatus | null>(null);
   const totalDuration = project.scenes
     .filter((scene) => scene.selected)
     .reduce((sum, scene) => sum + scene.duration, 0);
   const selectedCount = project.scenes.filter((scene) => scene.selected).length;
 
+  useEffect(() => {
+    dependencyStatus().then(setDeps).catch(() => undefined);
+  }, []);
+
+  const blockingIssues: string[] = [];
+  if (deps) {
+    if (!deps.ffmpeg) blockingIssues.push("FFmpeg is not installed.");
+    if (!deps.ffprobe) blockingIssues.push("FFprobe is not installed.");
+  }
+
   async function handleStart() {
+    if (blockingIssues.length > 0) return;
     setBusy(true);
     try {
       const dir = await saveDialog({
@@ -39,6 +53,7 @@ export function ExportModal({ onClose, onStart, onOpenSettings, project }: Props
   }
 
   const hasCloudKey = (provider: string) => provider === "edge" || provider === "marian" || provider === "piper" || provider === "pages";
+  const cloudWarning = !hasCloudKey(project.translationProvider) || !hasCloudKey(project.voiceProvider);
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -77,7 +92,26 @@ export function ExportModal({ onClose, onStart, onOpenSettings, project }: Props
           </div>
         </label>
 
-        {!hasCloudKey(project.translationProvider) || !hasCloudKey(project.voiceProvider) ? (
+        {blockingIssues.length > 0 && deps && (
+          <div className="export-blocker">
+            <Warning size={18} weight="fill" />
+            <div>
+              <strong>Cannot export yet</strong>
+              <ul>
+                {blockingIssues.map((issue, i) => (
+                  <li key={i}>{issue}</li>
+                ))}
+              </ul>
+              {deps.installHints.map((hint: InstallHint, i: number) => (
+                <code key={i} className="export-install-cmd">
+                  {hint.command}
+                </code>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {cloudWarning && blockingIssues.length === 0 && (
           <div className="export-warning">
             <Gear size={18} />
             <span>Some providers need configuration before export.</span>
@@ -85,12 +119,12 @@ export function ExportModal({ onClose, onStart, onOpenSettings, project }: Props
               Open settings
             </button>
           </div>
-        ) : null}
+        )}
 
         <button
           className="export-primary"
           onClick={handleStart}
-          disabled={busy || selectedCount === 0}
+          disabled={busy || selectedCount === 0 || blockingIssues.length > 0}
         >
           <Export size={18} /> {busy ? "Starting…" : "Start export"}
         </button>

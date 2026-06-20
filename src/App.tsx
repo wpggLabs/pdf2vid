@@ -10,6 +10,7 @@ import { ModelsModal } from "./components/ModelsModal";
 import { ProgressModal } from "./components/ProgressModal";
 import { ProviderField } from "./components/ProviderField";
 import { PreviewModal } from "./components/PreviewModal";
+import { ProviderHealth } from "./components/ProviderHealth";
 import {
   getProviderList, getSystemStatus, startExport as backendExport,
 } from "./backend";
@@ -621,6 +622,7 @@ function App() {
               </label>
             </div>
           )}
+          <ProviderHealth onOpenModels={() => ui.openModels()} />
           <div className="export-section">
             <span>EXPORT VIDEO</span>
             <label className="check-row">

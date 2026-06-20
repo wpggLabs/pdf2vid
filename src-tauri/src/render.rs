@@ -321,11 +321,14 @@ async fn run_export_inner(
 
     emit_progress(&app, &request.job_id, "Done", "Export complete", 100, None, None);
 
+    let untranslated_count = translation_warnings.len() as u32;
     Ok(ExportComplete {
         job_id: request.job_id,
         youtube_path,
         tiktok_path,
         translation_warnings,
+        skipped_pages: project.skipped_pages.clone(),
+        untranslated_count,
     })
 }
 
@@ -808,6 +811,7 @@ mod tests {
             voice: "es-ES-ElviraNeural".into(),
             output_you_tube: true,
             output_tik_tok: false,
+            skipped_pages: vec![],
         }
     }
 

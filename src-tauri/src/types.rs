@@ -34,6 +34,8 @@ pub struct Project {
     pub voice: String,
     pub output_you_tube: bool,
     pub output_tik_tok: bool,
+    #[serde(default)]
+    pub skipped_pages: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -105,6 +107,13 @@ pub struct ExportComplete {
     /// surface this list so the user knows the translation didn't run.
     #[serde(default)]
     pub translation_warnings: Vec<TranslationWarning>,
+    /// Number of pages that were skipped during import because they had no
+    /// selectable text. Persisted on Project so the count survives reload.
+    #[serde(default)]
+    pub skipped_pages: Vec<u32>,
+    /// Total scenes that ended up untranslated (computed from translation_warnings).
+    #[serde(default)]
+    pub untranslated_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

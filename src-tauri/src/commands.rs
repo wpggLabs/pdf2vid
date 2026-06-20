@@ -83,6 +83,123 @@ pub struct TtsEngineStatus {
     pub edge_tts_version: Option<String>,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DependencyStatus {
+    pub ffmpeg: bool,
+    pub ffprobe: bool,
+    pub ffmpeg_path: Option<String>,
+    pub python: bool,
+    pub python_path: Option<String>,
+    pub edge_tts: bool,
+    pub edge_tts_version: Option<String>,
+    pub platform: String,
+    pub install_hints: Vec<InstallHint>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallHint {
+    pub tool: String,
+    pub message: String,
+    pub command: String,
+}
+
+#[tauri::command]
+pub fn dependency_status() -> DependencyStatus {
+    let ffmpeg_path = crate::ffmpeg::ffmpeg_path();
+    let ffprobe_path = crate::ffmpeg::ffprobe_path();
+    let python = crate::edgetts::detect_python_with_edge_tts();
+
+    let ffmpeg = ffmpeg_path.is_some();
+    let ffprobe = ffprobe_path.is_some();
+    let (python_ok, edge_tts_version) = match python.as_ref() {
+        Some(p) => {
+            let version = probe_edge_tts_version(p);
+            (true, version)
+        }
+        None => (false, None),
+    };
+
+    let mut hints = Vec::new();
+    if !ffmpeg {
+        hints.push(match std::env::consts::OS {
+            "windows" => InstallHint {
+                tool: "ffmpeg".into(),
+                message: "FFmpeg is required to render videos. Install via winget or download from gyan.dev.".into(),
+                command: "winget install Gyan.FFmpeg".into(),
+            },
+            "macos" => InstallHint {
+                tool: "ffmpeg".into(),
+                message: "FFmpeg is required to render videos. Install via Homebrew.".into(),
+                command: "brew install ffmpeg".into(),
+            },
+            _ => InstallHint {
+                tool: "ffmpeg".into(),
+                message: "FFmpeg is required to render videos. Install via your package manager.".into(),
+                command: "sudo apt install ffmpeg".into(),
+            },
+        });
+    }
+    if !ffprobe {
+        hints.push(InstallHint {
+            tool: "ffprobe".into(),
+            message: "ffprobe (bundled with ffmpeg) is required to probe output videos.".into(),
+            command: "Install ffmpeg (ffprobe is included).".into(),
+        });
+    }
+    if !python_ok {
+        hints.push(match std::env::consts::OS {
+            "windows" => InstallHint {
+                tool: "python".into(),
+                message: "Python 3.8+ with the edge-tts package is the default voice engine.".into(),
+                command: "winget install Python.Python.3.12 && pip install edge-tts".into(),
+            },
+            "macos" => InstallHint {
+                tool: "python".into(),
+                message: "Python 3.8+ with the edge-tts package is the default voice engine.".into(),
+                command: "brew install python@3.12 && pip3 install edge-tts".into(),
+            },
+            _ => InstallHint {
+                tool: "python".into(),
+                message: "Python 3.8+ with the edge-tts package is the default voice engine.".into(),
+                command: "sudo apt install python3 python3-pip && pip3 install edge-tts".into(),
+            },
+        });
+    }
+
+    DependencyStatus {
+        ffmpeg,
+        ffprobe,
+        ffmpeg_path: ffmpeg_path.map(|p| p.to_string_lossy().to_string()),
+        python: python_ok,
+        python_path: python.as_ref().map(|p| p.to_string_lossy().to_string()),
+        edge_tts: python_ok,
+        edge_tts_version,
+        platform: std::env::consts::OS.to_string(),
+        install_hints: hints,
+    }
+}
+
+fn probe_edge_tts_version(python: &std::path::Path) -> Option<String> {
+    let out = std::process::Command::new(python)
+        .args(["-c", "import edge_tts; print(edge_tts.__version__ if hasattr(edge_tts, '__version__') else 'installed')"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if v.is_empty() {
+        None
+    } else {
+        Some(v)
+    }
+}
+
 #[tauri::command]
 pub fn is_model_installed(app: AppHandle, model_id: String) -> bool {
     crate::models::is_model_installed(&app, &model_id)

@@ -130,3 +130,25 @@ export interface TtsEngineStatus {
 export function checkTtsEngine(): Promise<TtsEngineStatus> {
   return invoke("check_tts_engine");
 }
+
+export interface InstallHint {
+  tool: string;
+  message: string;
+  command: string;
+}
+
+export interface DependencyStatus {
+  ffmpeg: boolean;
+  ffprobe: boolean;
+  ffmpegPath: string | null;
+  python: boolean;
+  pythonPath: string | null;
+  edgeTts: boolean;
+  edgeTtsVersion: string | null;
+  platform: string;
+  installHints: InstallHint[];
+}
+
+export function dependencyStatus(): Promise<DependencyStatus> {
+  return invoke("dependency_status");
+}

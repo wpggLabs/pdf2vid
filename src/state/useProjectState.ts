@@ -107,7 +107,13 @@ export function useProjectState(): ProjectState {
     sourceName: string,
     result: PdfImportResult,
   ) {
-    setProject((current) => ({ ...current, name, sourceName, scenes: result.scenes }));
+    setProject((current) => ({
+      ...current,
+      name,
+      sourceName,
+      scenes: result.scenes,
+      skippedPages: result.skippedPages,
+    }));
     setActiveId(result.scenes[0].id);
     setStatus(formatImportStatus(result.scenes.length, result.skippedPages));
   }

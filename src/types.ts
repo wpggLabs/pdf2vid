@@ -33,6 +33,8 @@ export interface Project {
   voice: string;
   outputYouTube: boolean;
   outputTikTok: boolean;
+  /** Pages skipped during import because they had no selectable text. */
+  skippedPages?: number[];
 }
 
 export interface SystemStatus {

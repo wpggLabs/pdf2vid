@@ -28,6 +28,7 @@ pub fn run() {
             commands::is_model_installed,
             commands::read_pdf_file,
             commands::check_tts_engine,
+            commands::dependency_status,
             commands::cancel_model_download,
             commands::download_model,
             commands::delete_model,
@@ -66,6 +67,7 @@ mod tests {
             voice: "en-US-JennyNeural".into(),
             output_you_tube: true,
             output_tik_tok: true,
+            skipped_pages: vec![],
         }
     }
 

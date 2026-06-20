@@ -55,6 +55,8 @@ export interface ExportComplete {
   youtubePath: string | null;
   tiktokPath: string | null;
   translationWarnings: TranslationWarning[];
+  skippedPages: number[];
+  untranslatedCount: number;
 }
 
 export interface ExportError {

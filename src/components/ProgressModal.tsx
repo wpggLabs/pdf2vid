@@ -1,4 +1,4 @@
-import { X, Warning } from "@phosphor-icons/react";
+import { X, Warning, CheckCircle } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import { cancelExport, getSystemStatus, onExportComplete, onExportError, onExportProgress } from "../backend";
 import type { ExportProgress, TranslationWarning } from "../api";
@@ -7,6 +7,8 @@ interface DoneState {
   youtubePath: string | null;
   tiktokPath: string | null;
   translationWarnings: TranslationWarning[];
+  skippedPages: number[];
+  untranslatedCount: number;
 }
 
 interface Props {
@@ -41,6 +43,8 @@ export function ProgressModal({ jobId, onClose }: Props) {
             youtubePath: c.youtubePath,
             tiktokPath: c.tiktokPath,
             translationWarnings: c.translationWarnings ?? [],
+            skippedPages: c.skippedPages ?? [],
+            untranslatedCount: c.untranslatedCount ?? 0,
           }),
         ),
       );
@@ -56,6 +60,11 @@ export function ProgressModal({ jobId, onClose }: Props) {
       setError(`Cancel failed: ${e}`);
     }
   }
+
+  const totalWarnings =
+    (done?.translationWarnings.length ?? 0) +
+    (done?.skippedPages.length ?? 0);
+  const reviewCount = done?.untranslatedCount ?? 0;
 
   return (
     <div className="modal-backdrop">
@@ -99,6 +108,18 @@ export function ProgressModal({ jobId, onClose }: Props) {
 
         {done && (
           <div className="progress-done">
+            <div className="progress-summary-header">
+              <CheckCircle size={28} weight="fill" />
+              <div>
+                <strong>Export complete</strong>
+                <span>
+                  {totalWarnings === 0 && reviewCount === 0
+                    ? "Everything looks clean."
+                    : `${totalWarnings} warning${totalWarnings === 1 ? "" : "s"}, ${reviewCount} untranslated scene${reviewCount === 1 ? "" : "s"}.`}
+                </span>
+              </div>
+            </div>
+
             {done.youtubePath && (
               <p>
                 <strong>YouTube:</strong> <code>{done.youtubePath}</code>
@@ -109,6 +130,23 @@ export function ProgressModal({ jobId, onClose }: Props) {
                 <strong>TikTok:</strong> <code>{done.tiktokPath}</code>
               </p>
             )}
+
+            {done.skippedPages.length > 0 && (
+              <div className="progress-warning-block">
+                <Warning size={16} weight="fill" />
+                <div>
+                  <strong>
+                    {done.skippedPages.length} page{done.skippedPages.length === 1 ? "" : "s"} skipped
+                  </strong>
+                  <span>
+                    Imported PDF had no selectable text on these pages:{" "}
+                    {done.skippedPages.slice(0, 8).join(", ")}
+                    {done.skippedPages.length > 8 && `, +${done.skippedPages.length - 8} more`}
+                  </span>
+                </div>
+              </div>
+            )}
+
             {done.translationWarnings.length > 0 && (
               <div className="progress-warnings">
                 <p>
@@ -135,6 +173,7 @@ export function ProgressModal({ jobId, onClose }: Props) {
                 </p>
               </div>
             )}
+
             <button className="export-primary" onClick={onClose}>
               Done
             </button>
