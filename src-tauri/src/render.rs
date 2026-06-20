@@ -349,6 +349,40 @@ fn emit_progress(
     let _ = app.emit("export:progress", &payload);
 }
 
+/// Build the FFmpeg argument list for one render. Pure function so the
+/// smoke test (and any future test) can verify the filter shape without
+/// needing a Tauri runtime.
+pub fn build_ffmpeg_args(
+    inputs: &[String],
+    filter: &str,
+    output: &PathBuf,
+) -> Vec<String> {
+    let mut args = vec!["-y".to_string()];
+    args.extend_from_slice(inputs);
+    args.push("-filter_complex".to_string());
+    args.push(filter.to_string());
+    args.push("-map".to_string());
+    args.push("[vout]".to_string());
+    args.push("-map".to_string());
+    args.push("[aout]".to_string());
+    args.push("-c:v".to_string());
+    args.push("libx264".to_string());
+    args.push("-preset".to_string());
+    args.push("fast".to_string());
+    args.push("-crf".to_string());
+    args.push("23".to_string());
+    args.push("-pix_fmt".to_string());
+    args.push("yuv420p".to_string());
+    args.push("-c:a".to_string());
+    args.push("aac".to_string());
+    args.push("-b:a".to_string());
+    args.push("192k".to_string());
+    args.push("-movflags".to_string());
+    args.push("+faststart".to_string());
+    args.push(output.to_string_lossy().to_string());
+    args
+}
+
 /// Run FFmpeg as a cancellable child process. The child handle is
 /// registered in AppState so a concurrent `cancel_export` call can
 /// terminate it via `start_kill`. The cancel flag is polled between
@@ -426,15 +460,10 @@ async fn compose_video(
         n = audio_inputs.len()
     ));
 
+    let args = build_ffmpeg_args(&inputs, &filter, output);
+
     let mut cmd = tokio::process::Command::new(&ffmpeg);
-    cmd.arg("-y")
-        .args(&inputs)
-        .args(["-filter_complex", &filter])
-        .args(["-map", "[vout]", "-map", "[aout]"])
-        .args(["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p"])
-        .args(["-c:a", "aac", "-b:a", "192k"])
-        .args(["-movflags", "+faststart"])
-        .arg(output)
+    cmd.args(&args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -722,6 +751,37 @@ mod tests {
         assert!(is_english("English (US)"));
         assert!(is_english(""));
         assert!(!is_english("Spanish"));
+    }
+
+    #[test]
+    fn build_ffmpeg_args_shape() {
+        let inputs = vec![
+            "-loop".into(),
+            "1".into(),
+            "-i".into(),
+            "/tmp/visual.jpg".into(),
+            "-i".into(),
+            "/tmp/audio.mp3".into(),
+        ];
+        let filter = "[0:v]scale=1920:1080[vout];[1:a]aresample=44100[aout];concat=n=1:v=1:a=1[vout][aout]".to_string();
+        let output = PathBuf::from("/tmp/out.mp4");
+        let args = build_ffmpeg_args(&inputs, &filter, &output);
+
+        assert_eq!(args[0], "-y");
+        // Input section preserved
+        assert!(args.contains(&"/tmp/visual.jpg".to_string()));
+        assert!(args.contains(&"/tmp/audio.mp3".to_string()));
+        // Filter is quoted as a single arg pair
+        let filter_idx = args.iter().position(|a| a == "-filter_complex").unwrap();
+        assert_eq!(args[filter_idx + 1], filter);
+        // Maps + codecs + output
+        assert!(args.windows(2).any(|w| w == ["-map", "[vout]"]));
+        assert!(args.windows(2).any(|w| w == ["-map", "[aout]"]));
+        assert!(args.windows(2).any(|w| w == ["-c:v", "libx264"]));
+        assert!(args.windows(2).any(|w| w == ["-c:a", "aac"]));
+        assert!(args.windows(2).any(|w| w == ["-movflags", "+faststart"]));
+        // Output is last
+        assert_eq!(args.last().unwrap(), "/tmp/out.mp4");
     }
 
     fn make_test_project() -> Project {
