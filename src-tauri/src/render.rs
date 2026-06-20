@@ -377,6 +377,9 @@ pub fn build_ffmpeg_args(
     args.push("aac".to_string());
     args.push("-b:a".to_string());
     args.push("192k".to_string());
+    // `-shortest` bounds the encode to the shorter of the two streams;
+    // the looped `-loop 1` image input would otherwise run forever.
+    args.push("-shortest".to_string());
     args.push("-movflags".to_string());
     args.push("+faststart".to_string());
     args.push(output.to_string_lossy().to_string());
@@ -780,6 +783,7 @@ mod tests {
         assert!(args.windows(2).any(|w| w == ["-c:v", "libx264"]));
         assert!(args.windows(2).any(|w| w == ["-c:a", "aac"]));
         assert!(args.windows(2).any(|w| w == ["-movflags", "+faststart"]));
+        assert!(args.contains(&"-shortest".to_string()));
         // Output is last
         assert_eq!(args.last().unwrap(), "/tmp/out.mp4");
     }
