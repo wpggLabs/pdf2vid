@@ -35,27 +35,45 @@
 ## Highlights
 
 - **Real PDF parsing** — text extraction, page thumbnails, scene selection, editable per-scene scripts
+- **Read-along captions** — the on-screen text follows the narration line by line, word-accurate when using edge-tts
+- **Premium render** — blurred, graded backdrop (no black bars), Ken Burns motion, vignette, and drop-shadow captions
+- **Audio-accurate timing** — each scene's length is derived from the actual narration, not an estimate
 - **YouTube 1920×1080** and **TikTok 1080×1920** full-length export
 - **Free by default** — works with zero accounts, zero API keys, zero subscriptions
-- **Optional paid upgrades** — bring your own OpenAI, Google Cloud, or ElevenLabs key for higher quality
-- **Provider registry** — OpenAI, Google Cloud Translation, ElevenLabs, edge-tts, Piper, MarianMT
+- **Rich provider registry** — voices (edge-tts, Kokoro, Chatterbox, OpenAI, ElevenLabs) and translation (Argos, OpenAI, Google Cloud)
 - **Native FFmpeg integration** — system PATH or bundled sidecar
 - **OS credential storage** — keys never written to project files
 - **Live progress** with cancellation, debounced auto-save, and streaming PDF import
+- **No telemetry** — runs fully offline once local models are installed
 - **Cross-platform** — Windows 10+, macOS 11+, Ubuntu 22.04+
+
+## Download
+
+Grab the latest installer for your platform from the
+[**Releases**](../../releases) page:
+
+| Platform | File |
+|---|---|
+| Windows | `.msi` / `.exe` (NSIS) |
+| macOS | `.dmg` (Apple Silicon + Intel) |
+| Linux | `.AppImage` / `.deb` |
+
+New releases are built automatically for all three platforms whenever a
+`v*` tag is pushed. FFmpeg is bundled as a sidecar, so there's nothing
+else to install for the free defaults.
+
+> **Note:** pdf2vid is a native desktop app (Tauri + Rust + FFmpeg), so
+> there is no in-browser version — the rendering and voice pipelines run
+> locally on your machine. See the [project page](https://wpggLabs.github.io/pdf2vid/)
+> for screenshots and a feature tour.
 
 ## Installation
 
 ### Windows
 
-Download the latest `pdf2vid_0.1.0_x64-setup.exe` from the
-[Releases](../../releases) page. The MSI and NSIS installers bundle FFmpeg
-auto-detection and the desktop runtime.
-
-```powershell
-winget install pdf2vid
-# or download from the Releases page
-```
+Download the latest `.msi` or `.exe` (NSIS) installer from the
+[Releases](../../releases) page. Both bundle the FFmpeg sidecar and the
+desktop runtime.
 
 ### macOS / Linux
 
@@ -96,12 +114,17 @@ key, and pick the cloud provider from the dropdown.
 pdf2vid exposes every stage through a single registry. The user picks one
 provider per stage. The first option in each list is the free default.
 
-| Stage | Free default | Optional paid | Notes |
+| Stage | Free default | Also available | Notes |
 |---|---|---|---|
-| Translation | MarianMT (local, CC-BY-4.0) | OpenAI, Google Cloud | Model download ~300 MB per pair |
-| Voice | edge-tts (Microsoft Neural via Python) | OpenAI TTS, ElevenLabs | Requires `pip install edge-tts` |
-| Visual | PDF pages + Ken Burns + drawtext | Higgsfield (coming soon) | Zero dependencies |
+| Translation | **Argos** (offline, MIT) | OpenAI, Google Cloud | `pip install argostranslate`; language packs auto-download on first use |
+| Voice | **edge-tts** (Microsoft Neural via Python) | Kokoro, Chatterbox (local), OpenAI TTS, ElevenLabs | `pip install edge-tts`; falls back to StreamElements / Google TTS |
+| Visual | PDF pages + Ken Burns + read-along captions | Higgsfield (coming soon) | Zero dependencies |
 | Render | FFmpeg (system PATH or sidecar) | — | Bundled by default |
+
+Local voice add-ons (great on a GPU): **Kokoro** (`pip install kokoro
+soundfile`, Apache-2.0, 8 languages, fast on CPU) and **Chatterbox
+Multilingual** (`pip install chatterbox-tts torchaudio`, MIT, 23
+languages, expressive). Both fall back to edge-tts if not installed.
 
 See [docs/providers.md](docs/providers.md) for the full per-provider
 matrix with data flow, license, and network behavior.
@@ -127,8 +150,11 @@ pdf2vid/
 │   │   ├── commands.rs      # 14 #[tauri::command] handlers
 │   │   ├── render.rs        # 4-stage export pipeline
 │   │   ├── providers.rs     # Provider registry
-│   │   ├── models.rs        # MarianMT + Piper model registry
-│   │   ├── edgetts.rs       # edge-tts Python subprocess
+│   │   ├── edgetts.rs       # edge-tts Python subprocess + subtitle cues
+│   │   ├── kokoro.rs        # Kokoro local voice (Python subprocess)
+│   │   ├── chatterbox.rs    # Chatterbox multilingual voice
+│   │   ├── argos.rs         # Argos offline translation
+│   │   ├── subprocess.rs    # Streaming subprocess helper (live progress)
 │   │   ├── cloud.rs         # OpenAI, Google, ElevenLabs HTTP clients
 │   │   ├── ffmpeg.rs        # FFmpeg detection + arg builders
 │   │   └── state.rs         # AppState, JobHandle, cancel flag
@@ -243,6 +269,7 @@ MIT — see [LICENSE](LICENSE).
 ---
 
 <p align="center">
-  <sub>Built with Tauri 2, React 19, Rust, pdfjs-dist, FFmpeg, and the
-  <a href="https://github.com/rany2/edge-tts">edge-tts</a> Python package.</sub>
+  <sub>Built with Tauri 2, React 19, Rust, pdfjs-dist, FFmpeg,
+  <a href="https://github.com/rany2/edge-tts">edge-tts</a>, Kokoro,
+  Chatterbox, and Argos Translate.</sub>
 </p>

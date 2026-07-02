@@ -8,7 +8,7 @@ first option in each list is the free default.
 
 | Provider | Tier | Cost | Network | Notes |
 |---|---|---|---|---|
-| **MarianMT** | Free default | Free | Model download (one-time) | Helsinki-NLP Opus-MT. Runs locally after model files are downloaded. CC-BY-4.0. |
+| **Argos Translate** | Free default | Free | Language pack download (one-time) | Offline OpenNMT/CTranslate2 translator (MIT). `pip install argostranslate`; the language pack for a pair auto-downloads on first use. |
 | **OpenAI** | BYO key | Per-token (your account) | Per request | `gpt-4o-mini` chat completion. |
 | **Google Cloud Translation** | BYO key | Per-character (your account) | Per request | REST API v2 with API key. |
 | DeepL | Coming soon | — | — | UI badge "Coming soon", blocked from export. |
@@ -18,8 +18,10 @@ first option in each list is the free default.
 
 | Provider | Tier | Cost | Network | Notes |
 |---|---|---|---|---|
-| **edge-tts** | Free default | Free | Per synthesis (Microsoft) | Microsoft Neural voices (`en-US-AriaNeural`, `en-US-JennyNeural`, etc). Implemented by shelling out to the `edge-tts` Python package (`pip install edge-tts`). Highest-quality free voice. |
-| **Piper** | Free fallback | Free | Model download (one-time) | Offline ONNX voices after model download. Smaller, less expressive than edge-tts. |
+| **edge-tts** | Free default | Free | Per synthesis (Microsoft) | Microsoft Neural voices (`en-US-AriaNeural`, `en-US-JennyNeural`, etc). Shells out to the `edge-tts` Python package (`pip install edge-tts`). Also emits word-level subtitles used for read-along captions. |
+| **Kokoro** | Free · local | Free | Model download (one-time) | 82M Apache-2.0 model, 8 languages, fast on CPU/GPU. `pip install kokoro soundfile`. |
+| **Chatterbox** | Free · local | Free | Model download (one-time) | MIT multilingual model, 23 languages, expressive (GPU recommended). `pip install chatterbox-tts torchaudio`. |
+| **Piper** | Free · local | Free | Model download (one-time) | Offline ONNX voices. Registry entry present; ONNX inference is a stub. |
 | **OpenAI TTS** | BYO key | Per-character (your account) | Per request | `tts-1` model, voices `alloy`/`shimmer`/`onyx` etc. |
 | **ElevenLabs** | BYO key | Per-character (your account) | Per request | Premium neural voices. Voice IDs configurable in Settings. |
 | Azure Speech | Coming soon | — | — | UI badge "Coming soon", blocked from export. |
@@ -40,13 +42,12 @@ first option in each list is the free default.
   OSS ecosystem. Requires Python 3.8+ with the `edge-tts` package
   (`pip install edge-tts`).
 
-- **MarianMT models** — downloaded once from `huggingface.co`
-  (Helsinki-NLP/Opus-MT repos). Most pairs are CC-BY-4.0; some are
-  CC-BY-NC. The model picker in Settings surfaces the license before
-  download.
+- **Argos language packs** — downloaded once from the Argos package
+  index on first translation of a pair (MIT).
 
-- **Piper voices** — downloaded once from `huggingface.co`
-  (rhasspy/piper-voices). Most are CC-BY-4.0.
+- **Kokoro / Chatterbox** — model weights downloaded once from
+  `huggingface.co` on first synthesis. Kokoro is Apache-2.0, Chatterbox
+  is MIT. Download progress streams into the export progress modal.
 
 - **OpenAI / Google / ElevenLabs** — paid BYO-key tiers. Your key is
   sent directly from your machine to the provider's API. Keys live in
@@ -56,7 +57,7 @@ first option in each list is the free default.
 
 - PDF text and page images for local-provider exports.
 - Project files (`current-project.json` in `app_data_dir`).
-- Cached model files for MarianMT and Piper.
+- Cached model files for Argos, Kokoro, and Chatterbox.
 - The directory you choose for video output.
 
 ## What leaves your device

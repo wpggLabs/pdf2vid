@@ -19,6 +19,8 @@ __pycache__/
 .codex/
 .claude/
 CLAUDE.md
+AGENTS.md
+agents.md
 claude-audit.md
 test-output.txt
 src-tauri/target/

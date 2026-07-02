@@ -8,6 +8,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Read-along captions** — the on-screen text follows the narration line
+  by line; word-accurate when using edge-tts (subtitles are parsed into
+  timing cues), proportional otherwise.
+- **Premium render** — blurred, graded backdrop instead of black
+  letterbox bars, Ken Burns motion, vignette, and drop-shadow captions;
+  higher-quality encode (crf 20).
+- **Kokoro** and **Chatterbox Multilingual** local voice providers, and
+  **Argos** offline translation (replacing the MarianMT stub) — all via
+  opt-in Python subprocesses with graceful fallback to edge-tts.
+- **Live first-run model-download progress** streamed into the progress
+  modal (`subprocess::run_with_progress`).
+- Narration **speed slider** wired end-to-end (edge-tts `--rate`).
+- Tooling: Biome lint/format, Vitest coverage, cargo-deny, Dependabot,
+  clippy + rustfmt in CI, FFmpeg SHA-256 verification.
+
+### Changed
+
+- Scene duration is now derived from the actual narration audio (via
+  `ffprobe`) instead of a word-count estimate.
+- Default translation provider is **Argos** (offline), not MarianMT.
+
+### Fixed
+
+- `zoompan` no longer multiplied frames from a looped image input
+  (single-frame input keeps multi-scene concat correct).
+- Release workflow fetches the FFmpeg sidecar for the correct host target.
+
+### Historical
+
 - Real PDF fixture set under `fixtures/`:
   - `clean-text-3page.pdf` (3 pages of selectable English text)
   - `mixed-blank-page.pdf` (4 pages, page 2 blank)

@@ -32,14 +32,9 @@ jobs:
 
       - name: Fetch FFmpeg sidecar
         shell: bash
-        run: |
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            npm run fetch-ffmpeg -- win-x86_64
-          elif [ "$RUNNER_OS" == "macOS" ]; then
-            npm run fetch-ffmpeg -- mac
-          else
-            npm run fetch-ffmpeg -- linux-x86_64
-          fi
+        # `host` lets the fetch script pick the correct target for the
+        # runner (win-x86_64, mac-arm64/x86_64, or linux-x86_64).
+        run: npm run fetch-ffmpeg
 
       - run: npm ci
       - uses: tauri-apps/tauri-action@v0
