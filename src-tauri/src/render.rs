@@ -2,8 +2,9 @@ use crate::cloud;
 use crate::edgetts;
 use crate::ffmpeg::{ensure_ffmpeg_or_error, ensure_ffprobe_or_error, Aspect};
 use crate::font::{resolve_font, FontRenderKind, FontResolution};
+use crate::kokoro;
 use crate::models;
-use crate::providers::edge_voice_for_language;
+use crate::providers::{edge_voice_for_language, kokoro_lang_code, kokoro_voice_for_language};
 use crate::state::{cache_dir, AppState};
 use crate::types::{
     ExportComplete, ExportError, ExportProgress, ExportRequest, Project, ProjectWarning,
@@ -951,6 +952,15 @@ pub(crate) fn speed_to_rate(speed: u32) -> Option<String> {
 fn resolve_voice(project: &Project, _script: &str) -> String {
     match project.voice_provider.as_str() {
         "edge" => edge_voice_for_language(&project.language).to_string(),
+        // A kokoro voice id contains an underscore (e.g. `af_heart`); if the
+        // stored voice isn't one, pick a sensible default for the language.
+        "kokoro" => {
+            if project.voice.contains('_') {
+                project.voice.clone()
+            } else {
+                kokoro_voice_for_language(&project.language).to_string()
+            }
+        }
         "piper" => project.voice.clone(),
         "elevenlabs" => match project.voice.as_str() {
             "Amy · English (US)" => "EXAVITQu4vr4xnSDxMaL".to_string(),
@@ -1048,6 +1058,16 @@ async fn synthesize_with_provider(
                 voice: voice_name.to_string(),
                 rate: speed_to_rate(project.voice_speed),
                 pitch: None,
+            })
+            .await?;
+            resp.audio_base64
+        }
+        "kokoro" => {
+            let resp = kokoro::synthesize(kokoro::KokoroRequest {
+                text: text.to_string(),
+                voice: voice_name.to_string(),
+                lang_code: kokoro_lang_code(&project.language).to_string(),
+                speed: project.voice_speed as f32 / 100.0,
             })
             .await?;
             resp.audio_base64

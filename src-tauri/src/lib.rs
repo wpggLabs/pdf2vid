@@ -3,6 +3,7 @@ pub mod commands;
 pub mod edgetts;
 pub mod ffmpeg;
 pub mod font;
+pub mod kokoro;
 pub mod models;
 pub mod providers;
 pub mod render;

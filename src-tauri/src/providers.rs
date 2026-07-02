@@ -56,6 +56,16 @@ pub fn provider_list() -> ProviderList {
                 category: ProviderCategory::Voice,
             },
             ProviderOption {
+                id: "kokoro".into(),
+                label: "Kokoro".into(),
+                kind: ProviderKind::Local,
+                detail: "Free · Offline · Requires Python + kokoro".into(),
+                implemented: true,
+                online: false,
+                key_label: None,
+                category: ProviderCategory::Voice,
+            },
+            ProviderOption {
                 id: "piper".into(),
                 label: "Piper".into(),
                 kind: ProviderKind::Local,
@@ -149,6 +159,36 @@ pub fn edge_voice_for_language(language: &str) -> &'static str {
         "Chinese (Simplified)" => "zh-CN-XiaoxiaoNeural",
         "Arabic" => "ar-EG-SalmaNeural",
         _ => "en-US-JennyNeural",
+    }
+}
+
+/// Kokoro language code for a UI language name. Kokoro covers 8
+/// languages; the ones it does not support return an empty string so the
+/// caller can fall back to another provider.
+pub fn kokoro_lang_code(language: &str) -> &'static str {
+    match language {
+        "English (US)" => "a",
+        "Spanish" => "e",
+        "French" => "f",
+        "Portuguese" => "p",
+        "Hindi" => "h",
+        "Japanese" => "j",
+        "Chinese (Simplified)" => "z",
+        // German, Korean, Arabic are not supported by Kokoro.
+        _ => "",
+    }
+}
+
+/// A sensible default Kokoro voice id per language.
+pub fn kokoro_voice_for_language(language: &str) -> &'static str {
+    match language {
+        "Spanish" => "ef_dora",
+        "French" => "ff_siwis",
+        "Portuguese" => "pf_dora",
+        "Hindi" => "hf_alpha",
+        "Japanese" => "jf_alpha",
+        "Chinese (Simplified)" => "zf_xiaobei",
+        _ => "af_heart",
     }
 }
 

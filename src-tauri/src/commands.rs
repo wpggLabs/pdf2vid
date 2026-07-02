@@ -1,6 +1,7 @@
 use crate::cloud;
 use crate::edgetts;
 use crate::ffmpeg::{check_ffmpeg, check_ffprobe};
+use crate::kokoro;
 use crate::models;
 use crate::providers::provider_list;
 use crate::render;
@@ -310,6 +311,23 @@ pub async fn preview_voice(
                 Ok(r) => r,
                 Err(e) => return Err(format!("edge-tts synthesis failed: {e}")),
             };
+            base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                resp.audio_base64.as_bytes(),
+            )
+            .map_err(|e| e.to_string())?
+        }
+        "kokoro" => {
+            // A kokoro voice id's first letter is its language code
+            // (e.g. `af_heart` -> `a`).
+            let lang = voice.chars().next().map(String::from).unwrap_or_default();
+            let resp = kokoro::synthesize(kokoro::KokoroRequest {
+                text,
+                voice,
+                lang_code: lang,
+                speed: speed.unwrap_or(100) as f32 / 100.0,
+            })
+            .await?;
             base64::Engine::decode(
                 &base64::engine::general_purpose::STANDARD,
                 resp.audio_base64.as_bytes(),
