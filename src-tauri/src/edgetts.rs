@@ -16,6 +16,76 @@ pub struct TtsRequest {
 pub struct TtsResponse {
     pub audio_base64: String,
     pub format: String,
+    /// Word/phrase timing cues parsed from edge-tts subtitles, when
+    /// available. Empty for the fallback providers (StreamElements,
+    /// Google) which don't expose timing. Used to sync read-along
+    /// captions to the exact moment each phrase is spoken.
+    #[serde(default)]
+    pub cues: Vec<CaptionCue>,
+}
+
+/// A single subtitle cue: `text` spoken between `start` and `end`
+/// seconds (relative to the start of this scene's audio).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CaptionCue {
+    pub text: String,
+    pub start: f64,
+    pub end: f64,
+}
+
+/// Parse edge-tts subtitle output (SRT/VTT) into timing cues. Tolerant of
+/// both `,` and `.` millisecond separators and an optional `WEBVTT`
+/// header, so it works whether edge-tts emits `.srt` or `.vtt`.
+pub fn parse_subtitles(content: &str) -> Vec<CaptionCue> {
+    let mut cues = Vec::new();
+    for block in content.split("\n\n") {
+        let mut time_line = None;
+        let mut text_lines: Vec<&str> = Vec::new();
+        for line in block.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("WEBVTT") {
+                continue;
+            }
+            if trimmed.contains("-->") {
+                time_line = Some(trimmed);
+            } else if time_line.is_some() {
+                text_lines.push(trimmed);
+            } else if trimmed.chars().all(|c| c.is_ascii_digit()) {
+                // Bare SRT sequence number — skip.
+                continue;
+            }
+        }
+        if let Some(tl) = time_line {
+            if let Some((start, end)) = parse_time_range(tl) {
+                let text = text_lines.join(" ").trim().to_string();
+                if !text.is_empty() {
+                    cues.push(CaptionCue { text, start, end });
+                }
+            }
+        }
+    }
+    cues
+}
+
+fn parse_time_range(line: &str) -> Option<(f64, f64)> {
+    let (l, r) = line.split_once("-->")?;
+    Some((parse_timestamp(l.trim())?, parse_timestamp(r.trim())?))
+}
+
+/// Parse `HH:MM:SS,mmm` or `HH:MM:SS.mmm` (or `MM:SS.mmm`) into seconds.
+fn parse_timestamp(s: &str) -> Option<f64> {
+    let s = s.replace(',', ".");
+    let parts: Vec<&str> = s.split(':').collect();
+    let (h, m, sec) = match parts.as_slice() {
+        [h, m, s] => (
+            h.parse::<f64>().ok()?,
+            m.parse::<f64>().ok()?,
+            s.parse::<f64>().ok()?,
+        ),
+        [m, s] => (0.0, m.parse::<f64>().ok()?, s.parse::<f64>().ok()?),
+        _ => return None,
+    };
+    Some(h * 3600.0 + m * 60.0 + sec)
 }
 
 /// Detect whether `edge-tts` is available via a Python interpreter.
@@ -94,13 +164,16 @@ async fn synthesize_via_edge_tts(req: &TtsRequest) -> Result<TtsResponse, String
     // Build temp output path.
     let temp_dir = std::env::temp_dir().join("pdf2vid-tts");
     std::fs::create_dir_all(&temp_dir).map_err(|e| format!("Cannot create temp dir: {e}"))?;
-    let output_path = temp_dir.join(format!(
-        "scene-{}-{}.mp3",
+    let stamp = format!(
+        "{}-{}",
         std::process::id(),
         chrono::Utc::now().timestamp_millis()
-    ));
+    );
+    let output_path = temp_dir.join(format!("scene-{stamp}.mp3"));
+    let subtitle_path = temp_dir.join(format!("scene-{stamp}.srt"));
 
-    // Use the edge-tts CLI: python -m edge_tts --text <t> --voice <v> --write-media <path>
+    // Use the edge-tts CLI: python -m edge_tts --text <t> --voice <v>
+    //   --write-media <path> --write-subtitles <srt>
     let mut cmd = std::process::Command::new(&python);
     cmd.arg("-m")
         .arg("edge_tts")
@@ -117,6 +190,8 @@ async fn synthesize_via_edge_tts(req: &TtsRequest) -> Result<TtsResponse, String
     }
     cmd.arg("--write-media")
         .arg(&output_path)
+        .arg("--write-subtitles")
+        .arg(&subtitle_path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -146,9 +221,18 @@ async fn synthesize_via_edge_tts(req: &TtsRequest) -> Result<TtsResponse, String
         return Err("edge-tts produced empty audio".into());
     }
 
+    // Read + parse the subtitle sidecar for word-accurate caption timing.
+    // Missing/unparseable subtitles are non-fatal: the caller falls back
+    // to proportional timing.
+    let cues = std::fs::read_to_string(&subtitle_path)
+        .map(|s| parse_subtitles(&s))
+        .unwrap_or_default();
+    let _ = std::fs::remove_file(&subtitle_path);
+
     Ok(TtsResponse {
         audio_base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
         format: "audio/mpeg".into(),
+        cues,
     })
 }
 
@@ -225,6 +309,7 @@ async fn streamelements_synthesize(req: &TtsRequest) -> Result<TtsResponse, Stri
     Ok(TtsResponse {
         audio_base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
         format: "audio/mpeg".into(),
+        cues: Vec::new(),
     })
 }
 
@@ -262,6 +347,7 @@ async fn google_translate_synthesize(req: &TtsRequest, lang: &str) -> Result<Tts
     Ok(TtsResponse {
         audio_base64: base64::engine::general_purpose::STANDARD.encode(&combined),
         format: "audio/mpeg".into(),
+        cues: Vec::new(),
     })
 }
 
@@ -314,6 +400,34 @@ fn url_encode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_subtitles_srt() {
+        let srt =
+            "1\n00:00:00,100 --> 00:00:00,500\nHello\n\n2\n00:00:00,500 --> 00:00:01,250\nworld\n";
+        let cues = parse_subtitles(srt);
+        assert_eq!(cues.len(), 2);
+        assert_eq!(cues[0].text, "Hello");
+        assert!((cues[0].start - 0.1).abs() < 1e-9);
+        assert!((cues[0].end - 0.5).abs() < 1e-9);
+        assert_eq!(cues[1].text, "world");
+        assert!((cues[1].end - 1.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_subtitles_vtt_with_header() {
+        let vtt = "WEBVTT\n\n00:00:00.000 --> 00:00:00.800\nGood morning\n";
+        let cues = parse_subtitles(vtt);
+        assert_eq!(cues.len(), 1);
+        assert_eq!(cues[0].text, "Good morning");
+        assert!((cues[0].end - 0.8).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_subtitles_empty_is_empty() {
+        assert!(parse_subtitles("").is_empty());
+        assert!(parse_subtitles("garbage without timings").is_empty());
+    }
 
     #[test]
     fn voice_to_language_known() {

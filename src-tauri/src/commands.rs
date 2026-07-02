@@ -386,8 +386,14 @@ pub async fn preview_voice(
         }
         _ => return Err(format!("Voice provider '{provider}' not implemented")),
     };
+    // Kokoro and Chatterbox emit WAV; the others emit MP3. Label the data
+    // URL correctly so the browser's <audio> element decodes it reliably.
+    let mime = match provider.as_str() {
+        "kokoro" | "chatterbox" => "audio/wav",
+        _ => "audio/mpeg",
+    };
     Ok(format!(
-        "data:audio/mpeg;base64,{}",
+        "data:{mime};base64,{}",
         base64::engine::general_purpose::STANDARD.encode(&audio)
     ))
 }

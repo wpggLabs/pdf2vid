@@ -116,7 +116,10 @@ async fn run_export_inner(
                 &app,
                 &request.job_id,
                 "Translating",
-                &format!("Offline Argos to {}", project.language),
+                &format!(
+                    "Offline Argos to {} (first run downloads a language pack)",
+                    project.language
+                ),
                 5,
                 Some(0),
                 Some(total),
@@ -251,6 +254,10 @@ async fn run_export_inner(
 
     // Stage 2: synthesize voice
     let mut audio_paths: Vec<(String, PathBuf)> = Vec::new();
+    // Per-scene word-accurate caption cues (from edge-tts subtitles).
+    // Scenes not present here fall back to proportional caption timing.
+    let mut scene_cues: std::collections::HashMap<String, Vec<edgetts::CaptionCue>> =
+        std::collections::HashMap::new();
     emit_progress(
         &app,
         &request.job_id,
@@ -260,6 +267,19 @@ async fn run_export_inner(
         Some(0),
         Some(total),
     );
+    // Local model providers download their weights on first use; let the
+    // user know so a long first-run synth doesn't look like a hang.
+    if matches!(project.voice_provider.as_str(), "kokoro" | "chatterbox") {
+        emit_progress(
+            &app,
+            &request.job_id,
+            "Synthesizing",
+            "Loading local voice model (first run downloads weights)…",
+            30,
+            Some(0),
+            Some(total),
+        );
+    }
     current = 0;
     for scene in &translated_scenes {
         if cancel.load(Ordering::SeqCst) {
@@ -279,19 +299,25 @@ async fn run_export_inner(
         let result =
             synthesize_scene_audio(&app, &project, &script, &voice_name, &audio_path).await;
 
-        if let Err(e) = result {
-            warnings.push(
-                ProjectWarning::error(
-                    WarningCode::VoiceSynthesisFailed,
-                    format!("Voice synthesis failed for page {}: {e}", scene.page),
-                )
-                .with_scene(scene.id.clone(), scene.page)
-                .with_detail(e.clone())
-                .with_fix(
-                    "Check edge-tts / API key in Settings, or pick a different voice provider.",
-                ),
-            );
-            return Err(e);
+        let cues = match result {
+            Ok(cues) => cues,
+            Err(e) => {
+                warnings.push(
+                    ProjectWarning::error(
+                        WarningCode::VoiceSynthesisFailed,
+                        format!("Voice synthesis failed for page {}: {e}", scene.page),
+                    )
+                    .with_scene(scene.id.clone(), scene.page)
+                    .with_detail(e.clone())
+                    .with_fix(
+                        "Check edge-tts / API key in Settings, or pick a different voice provider.",
+                    ),
+                );
+                return Err(e);
+            }
+        };
+        if !cues.is_empty() {
+            scene_cues.insert(scene.id.clone(), cues);
         }
         audio_paths.push((scene.id.clone(), audio_path));
 
@@ -375,6 +401,7 @@ async fn run_export_inner(
             Aspect::Youtube,
             &path,
             &font_resolution,
+            &scene_cues,
             &mut warnings,
         )
         .await?;
@@ -404,6 +431,7 @@ async fn run_export_inner(
             Aspect::Tiktok,
             &path,
             &font_resolution,
+            &scene_cues,
             &mut warnings,
         )
         .await?;
@@ -580,6 +608,7 @@ async fn compose_video(
     aspect: Aspect,
     output: &std::path::Path,
     font: &FontResolution,
+    captions: &std::collections::HashMap<String, Vec<edgetts::CaptionCue>>,
     warnings: &mut Vec<ProjectWarning>,
 ) -> Result<(), String> {
     if cancel.load(Ordering::SeqCst) {
@@ -646,7 +675,10 @@ async fn compose_video(
         } else {
             None
         };
-        filter.push_str(&build_scene_video_chain(v_idx, i, w, h, frames, caption));
+        let cues = captions.get(&scene.id).map(Vec::as_slice).unwrap_or(&[]);
+        filter.push_str(&build_scene_video_chain(
+            v_idx, i, w, h, frames, caption, cues,
+        ));
         filter.push_str(&format!(
             "[{a_idx}:a]aresample=44100[a{i}];",
             a_idx = a_idx,
@@ -822,6 +854,7 @@ fn build_scene_video_chain(
     h: u32,
     frames: u32,
     caption: Option<&str>,
+    cues: &[edgetts::CaptionCue],
 ) -> String {
     // The image is fed to `zoompan` as a single still frame (the input is
     // NOT `-loop`ed), so `d` is the total number of output frames for the
@@ -834,15 +867,28 @@ fn build_scene_video_chain(
 [bgb{i}][fgs{i}]overlay=(W-w)/2:(H-h)/2,zoompan=z='min(zoom+0.0008,1.15)':d={frames}:s={w}x{h}:fps=25,vignette=PI/5,setsar=1,fps=25,format=yuv420p"
     );
     if let Some(script) = caption {
-        // Read-along captions: the script is wrapped into short lines and
-        // each line is shown only during its slice of the scene, so the
-        // on-screen text follows the narration line by line. Timing is
-        // proportional to line length across the audio-derived frame count.
-        let lines = split_caption_lines(script, 42);
-        for (line, start_frame, end_frame) in timed_caption_lines(&lines, frames) {
-            let safe = sanitize_ffmpeg_drawtext(&line);
-            let start = start_frame as f64 / 25.0;
-            let end = end_frame as f64 / 25.0;
+        // Read-along captions follow the narration. When word-accurate
+        // subtitle cues are available (edge-tts), each cue is shown for its
+        // exact spoken window; otherwise we wrap the script into short lines
+        // and distribute the scene's frames proportionally.
+        let scene_secs = frames as f64 / 25.0;
+        let windows: Vec<(String, f64, f64)> = if cues.is_empty() {
+            let lines = split_caption_lines(script, 42);
+            timed_caption_lines(&lines, frames)
+                .into_iter()
+                .map(|(line, sf, ef)| (line, sf as f64 / 25.0, ef as f64 / 25.0))
+                .collect()
+        } else {
+            cues.iter()
+                .map(|c| {
+                    let start = c.start.max(0.0);
+                    let end = c.end.min(scene_secs).max(start + 0.04);
+                    (c.text.clone(), start, end)
+                })
+                .collect()
+        };
+        for (text, start, end) in windows {
+            let safe = sanitize_ffmpeg_drawtext(&text);
             chain.push_str(&format!(
                 ",drawtext=text='{safe}':fontcolor=white:fontsize=44:shadowcolor=black@0.8:shadowx=2:shadowy=2:box=1:boxcolor=black@0.45:boxborderw=18:x=(w-text_w)/2:y=h-90:enable='between(t,{start:.2},{end:.2})'"
             ));
@@ -1006,7 +1052,7 @@ async fn synthesize_scene_audio(
     text: &str,
     voice_name: &str,
     audio_path: &std::path::Path,
-) -> Result<(), String> {
+) -> Result<Vec<edgetts::CaptionCue>, String> {
     let primary = project.voice_provider.as_str();
     let mut attempts: Vec<&str> = vec![primary];
 
@@ -1024,7 +1070,7 @@ async fn synthesize_scene_audio(
     let mut last_err: Option<String> = None;
     for provider in attempts {
         match synthesize_with_provider(app, provider, project, text, voice_name, audio_path).await {
-            Ok(()) => return Ok(()),
+            Ok(cues) => return Ok(cues),
             Err(e) => {
                 let is_hard = e.starts_with("No API key")
                     || e.contains("is not downloaded")
@@ -1047,8 +1093,11 @@ async fn synthesize_with_provider(
     text: &str,
     voice_name: &str,
     audio_path: &std::path::Path,
-) -> Result<(), String> {
-    let audio_b64 = match provider {
+) -> Result<Vec<edgetts::CaptionCue>, String> {
+    // Only edge-tts exposes word-accurate subtitle timing; the other
+    // providers return an empty cue list and the caller falls back to
+    // proportional caption timing.
+    let (audio_b64, cues): (String, Vec<edgetts::CaptionCue>) = match provider {
         "edge" => {
             let resp = edgetts::synthesize(edgetts::TtsRequest {
                 text: text.to_string(),
@@ -1057,7 +1106,7 @@ async fn synthesize_with_provider(
                 pitch: None,
             })
             .await?;
-            resp.audio_base64
+            (resp.audio_base64, resp.cues)
         }
         "kokoro" => {
             let resp = kokoro::synthesize(kokoro::KokoroRequest {
@@ -1067,7 +1116,7 @@ async fn synthesize_with_provider(
                 speed: project.voice_speed as f32 / 100.0,
             })
             .await?;
-            resp.audio_base64
+            (resp.audio_base64, Vec::new())
         }
         "chatterbox" => {
             // Chatterbox uses the same ISO language ids as Argos.
@@ -1076,7 +1125,7 @@ async fn synthesize_with_provider(
                 language_id: argos_lang_code(&project.language).to_string(),
             })
             .await?;
-            resp.audio_base64
+            (resp.audio_base64, Vec::new())
         }
         "piper" => {
             let model_id = "piper-en_US-amy";
@@ -1089,7 +1138,7 @@ async fn synthesize_with_provider(
                 },
             )
             .await?;
-            resp.audio_base64
+            (resp.audio_base64, Vec::new())
         }
         "openai" => {
             let key = read_api_key("openai")?;
@@ -1101,7 +1150,7 @@ async fn synthesize_with_provider(
                 },
             )
             .await?;
-            resp.audio_base64
+            (resp.audio_base64, Vec::new())
         }
         "elevenlabs" => {
             let key = read_api_key("elevenlabs")?;
@@ -1114,7 +1163,7 @@ async fn synthesize_with_provider(
                 },
             )
             .await?;
-            resp.audio_base64
+            (resp.audio_base64, Vec::new())
         }
         other => {
             return Err(format!("Voice provider '{}' is not yet implemented", other));
@@ -1124,7 +1173,7 @@ async fn synthesize_with_provider(
         .decode(audio_b64.as_bytes())
         .map_err(|e| e.to_string())?;
     std::fs::write(audio_path, bytes).map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(cues)
 }
 
 fn openai_voice_name(project: &Project) -> String {
@@ -1159,7 +1208,7 @@ mod tests {
 
     #[test]
     fn scene_chain_has_premium_elements() {
-        let chain = build_scene_video_chain(0, 0, 1920, 1080, 100, Some("hello"));
+        let chain = build_scene_video_chain(0, 0, 1920, 1080, 100, Some("hello"), &[]);
         // Blurred, graded background instead of black letterbox bars.
         assert!(chain.contains("split=2[bg0][fg0]"));
         assert!(chain.contains("boxblur"));
@@ -1213,15 +1262,38 @@ mod tests {
         // A long script wraps to multiple lines => multiple timed drawtexts.
         let script = "This is a reasonably long narration sentence that should wrap \
                       across several caption lines when rendered on screen.";
-        let chain = build_scene_video_chain(0, 0, 1920, 1080, 250, Some(script));
+        let chain = build_scene_video_chain(0, 0, 1920, 1080, 250, Some(script), &[]);
         let count = chain.matches("drawtext=text=").count();
         assert!(count >= 2, "expected multiple caption lines, got {count}");
         assert_eq!(chain.matches("enable='between(t,").count(), count);
     }
 
     #[test]
+    fn read_along_uses_subtitle_cues_when_present() {
+        // With word-accurate cues, each cue drives its own timed drawtext,
+        // using the cue's exact start/end (not proportional timing).
+        let cues = vec![
+            edgetts::CaptionCue {
+                text: "Hello".into(),
+                start: 0.0,
+                end: 0.6,
+            },
+            edgetts::CaptionCue {
+                text: "world".into(),
+                start: 0.6,
+                end: 1.4,
+            },
+        ];
+        let chain = build_scene_video_chain(0, 0, 1920, 1080, 100, Some("ignored script"), &cues);
+        assert!(chain.contains("drawtext=text='Hello'"));
+        assert!(chain.contains("drawtext=text='world'"));
+        assert!(chain.contains("enable='between(t,0.00,0.60)'"));
+        assert!(chain.contains("enable='between(t,0.60,1.40)'"));
+    }
+
+    #[test]
     fn scene_chain_without_font_omits_drawtext() {
-        let chain = build_scene_video_chain(2, 1, 1080, 1920, 150, None);
+        let chain = build_scene_video_chain(2, 1, 1080, 1920, 150, None, &[]);
         assert!(chain.contains("[2:v]split=2[bg1][fg1]"));
         assert!(chain.contains("d=150:"));
         assert!(!chain.contains("drawtext"));
