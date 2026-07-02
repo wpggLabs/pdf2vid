@@ -20,7 +20,7 @@ const defaultProject: Project = {
   sourceName: "No PDF imported",
   scenes: demoScenes,
   language: "English (US)",
-  translationProvider: "marian",
+  translationProvider: "argos",
   voiceProvider: "edge",
   voice: "en-US-AriaNeural",
   outputYouTube: true,

@@ -12,7 +12,6 @@ import {
   SkipForward,
   SpeakerHigh,
   Trash,
-  Warning,
   Waveform,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -628,15 +627,15 @@ function App() {
                   </span>
                 </div>
               </div>
-              {project.translationProvider === "marian" && project.language !== "English (US)" && (
-                <div className="local-note warn">
-                  <Warning size={18} weight="fill" />
+              {project.translationProvider === "argos" && project.language !== "English (US)" && (
+                <div className="local-note">
+                  <Check size={18} weight="fill" />
                   <div>
-                    <strong>MarianMT translation not yet implemented</strong>
+                    <strong>Offline translation via Argos</strong>
                     <span>
-                      Picking a non-English output with MarianMT will keep the source script and
-                      show a warning after export. Use OpenAI or Google Cloud for actual
-                      translation.
+                      Requires <code>pip install argostranslate</code>. The first render downloads a
+                      small language pack. If it isn't available, the source text is kept and a
+                      warning is shown — switch to OpenAI or Google Cloud for cloud translation.
                     </span>
                   </div>
                 </div>

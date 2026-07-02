@@ -4,10 +4,10 @@ pub fn provider_list() -> ProviderList {
     ProviderList {
         translation: vec![
             ProviderOption {
-                id: "marian".into(),
-                label: "MarianMT".into(),
+                id: "argos".into(),
+                label: "Argos Translate".into(),
                 kind: ProviderKind::Local,
-                detail: "Free · Helsinki-NLP · Runs on this device".into(),
+                detail: "Free · Offline · Requires Python + argostranslate".into(),
                 implemented: true,
                 online: false,
                 key_label: None,
@@ -162,6 +162,24 @@ pub fn edge_voice_for_language(language: &str) -> &'static str {
     }
 }
 
+/// Argos/ISO language code for a UI language name. Empty string when the
+/// language isn't in our advertised set.
+pub fn argos_lang_code(language: &str) -> &'static str {
+    match language {
+        "English (US)" => "en",
+        "Spanish" => "es",
+        "French" => "fr",
+        "German" => "de",
+        "Portuguese" => "pt",
+        "Hindi" => "hi",
+        "Japanese" => "ja",
+        "Korean" => "ko",
+        "Chinese (Simplified)" => "zh",
+        "Arabic" => "ar",
+        _ => "",
+    }
+}
+
 /// Kokoro language code for a UI language name. Kokoro covers 8
 /// languages; the ones it does not support return an empty string so the
 /// caller can fall back to another provider.
@@ -200,7 +218,7 @@ mod tests {
     #[test]
     fn free_translation_default_is_local() {
         let list = provider_list();
-        assert_eq!(list.translation[0].id, "marian");
+        assert_eq!(list.translation[0].id, "argos");
         assert_eq!(list.translation[0].kind, ProviderKind::Local);
         assert!(list.translation[0].implemented);
     }

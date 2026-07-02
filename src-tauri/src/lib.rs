@@ -1,3 +1,4 @@
+pub mod argos;
 pub mod cloud;
 pub mod commands;
 pub mod edgetts;

@@ -271,14 +271,16 @@ pub async fn translate_text(
     target_language: String,
     text: String,
 ) -> Result<String, String> {
+    // Local/offline default: Argos. (Legacy `marian` and empty provider
+    // route here too, so older saved projects keep working.)
+    if provider == "argos" || provider == "marian" || provider.is_empty() {
+        let to = crate::providers::argos_lang_code(&target_language);
+        return crate::argos::translate("en", to, &text).await;
+    }
     let req = cloud::TranslationRequest {
         text,
         target_language: target_language.clone(),
     };
-    if provider == "marian" || provider.is_empty() {
-        let resp = cloud::marian_translate("", req).await?;
-        return Ok(resp.translated_text);
-    }
     let key = keyring::Entry::new("com.wpgglabs.pdf2vid", &provider)
         .map_err(|e| e.to_string())?
         .get_password()

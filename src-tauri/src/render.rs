@@ -1,10 +1,13 @@
+use crate::argos;
 use crate::cloud;
 use crate::edgetts;
 use crate::ffmpeg::{ensure_ffmpeg_or_error, ensure_ffprobe_or_error, Aspect};
 use crate::font::{resolve_font, FontRenderKind, FontResolution};
 use crate::kokoro;
 use crate::models;
-use crate::providers::{edge_voice_for_language, kokoro_lang_code, kokoro_voice_for_language};
+use crate::providers::{
+    argos_lang_code, edge_voice_for_language, kokoro_lang_code, kokoro_voice_for_language,
+};
 use crate::state::{cache_dir, AppState};
 use crate::types::{
     ExportComplete, ExportError, ExportProgress, ExportRequest, Project, ProjectWarning,
@@ -112,7 +115,7 @@ async fn run_export_inner(
                 &app,
                 &request.job_id,
                 "Translating",
-                &format!("Local MarianMT to {}", project.language),
+                &format!("Offline Argos to {}", project.language),
                 5,
                 Some(0),
                 Some(total),
@@ -128,42 +131,35 @@ async fn run_export_inner(
                     continue;
                 }
                 current += 1;
-                let result = cloud::marian_translate(
-                    "",
-                    cloud::TranslationRequest {
-                        text: scene.script.clone(),
-                        target_language: project.language.clone(),
-                    },
-                )
-                .await;
+                let result =
+                    argos::translate("en", argos_lang_code(&project.language), &scene.script).await;
                 let mut s = scene.clone();
                 match result {
-                    Ok(r) => s.translated_script = Some(r.translated_text),
+                    Ok(translated_text) => s.translated_script = Some(translated_text),
                     Err(e) => {
-                        // MarianMT local inference is not implemented yet.
-                        // Don't pretend the translation worked: record a warning
-                        // and fall back to the source script so the export still
-                        // completes (the user gets a video, not a hard error).
+                        // Argos isn't installed, the language pack is missing,
+                        // or the pair is unsupported. Don't pretend it worked:
+                        // record a warning and fall back to the source script so
+                        // the export still completes (a video, not a hard error).
                         translation_warnings.push(TranslationWarning {
                             scene_id: scene.id.clone(),
                             page: scene.page,
-                            provider: "marian".into(),
+                            provider: "argos".into(),
                             message: format!(
-                                "MarianMT inference is not yet implemented; \
-                                 using source text for page {}",
+                                "Argos translation unavailable; using source text for page {}",
                                 scene.page
                             ),
                         });
                         warnings.push(
                             ProjectWarning::warning(
                                 WarningCode::UntranslatedScene,
-                                format!("Page {} used the source script: MarianMT is not yet implemented", scene.page),
+                                format!("Page {} used the source script: Argos translation was unavailable", scene.page),
                             )
                             .with_scene(scene.id.clone(), scene.page)
                             .with_detail(e.to_string())
-                            .with_fix("Switch the translation provider to OpenAI or Google Cloud in the inspector."),
+                            .with_fix("Install it with `pip install argostranslate`, or switch to OpenAI / Google Cloud in the inspector."),
                         );
-                        log::warn!("MarianMT failed for page {}: {}", scene.page, e);
+                        log::warn!("Argos failed for page {}: {}", scene.page, e);
                         s.translated_script = Some(scene.script.clone());
                     }
                 }
