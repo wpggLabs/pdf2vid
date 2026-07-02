@@ -528,9 +528,9 @@ pub fn build_ffmpeg_args(
     args.push("-c:v".to_string());
     args.push("libx264".to_string());
     args.push("-preset".to_string());
-    args.push("fast".to_string());
+    args.push("medium".to_string());
     args.push("-crf".to_string());
-    args.push("23".to_string());
+    args.push("20".to_string());
     args.push("-pix_fmt".to_string());
     args.push("yuv420p".to_string());
     args.push("-c:a".to_string());
@@ -589,6 +589,7 @@ async fn compose_video(
     }
 
     let ffmpeg = ensure_ffmpeg_or_error()?;
+    let ffprobe = ensure_ffprobe_or_error()?;
     let (w, h) = aspect.dimensions();
     let mut inputs: Vec<String> = Vec::new();
     let mut filter = String::new();
@@ -618,8 +619,9 @@ async fn compose_video(
             .map(|(_, p)| p.clone())
             .ok_or_else(|| format!("Missing audio for scene {}", scene.page))?;
 
-        inputs.push("-loop".into());
-        inputs.push("1".into());
+        // The image is fed as a single still frame (no `-loop`): `zoompan`
+        // generates the motion frames from it. `-loop` here would stream
+        // frames forever and break the concat, so it must stay off.
         inputs.push("-i".into());
         inputs.push(visual.to_string_lossy().to_string());
         inputs.push("-i".into());
@@ -632,25 +634,22 @@ async fn compose_video(
             .clone()
             .unwrap_or_else(|| scene.script.clone());
         let safe_script = sanitize_ffmpeg_drawtext(&script);
-        let seconds = scene.duration.max(1);
+        // Drive the scene length from the real narration audio so the video
+        // matches the voice exactly (the stored `duration` is only a
+        // word-count estimate). Fall back to it if probing fails.
+        let seconds = probe_audio_seconds(&ffprobe, &audio).unwrap_or(scene.duration as f64);
+        let frames = ((seconds.max(1.0)) * 25.0).ceil() as u32;
 
-        // Build the per-scene video chain. We always keep the
-        // scale + zoompan step; drawtext is appended only when a
-        // font was discovered.
-        filter.push_str(&format!(
-            "[{v_idx}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,zoompan=z='min(zoom+0.0008,1.15)':d={seconds}*25:s={w}x{h}",
-            v_idx = v_idx,
-            w = w,
-            h = h,
-            seconds = seconds,
-        ));
-        if drawtext_available {
-            filter.push_str(&format!(
-                ",drawtext=text='{safe_script}':fontcolor=white:fontsize=42:box=1:boxcolor=black@0.55:boxborderw=14:x=(w-text_w)/2:y=h-80",
-                safe_script = safe_script,
-            ));
-        }
-        filter.push_str(&format!("[v{i}];", i = i));
+        // Build the premium per-scene video chain (blurred graded
+        // background + sharp page + Ken Burns + vignette, with an
+        // optional drop-shadow caption). drawtext is included only when
+        // a font was discovered.
+        let caption = if drawtext_available {
+            Some(safe_script.as_str())
+        } else {
+            None
+        };
+        filter.push_str(&build_scene_video_chain(v_idx, i, w, h, frames, caption));
         filter.push_str(&format!(
             "[{a_idx}:a]aresample=44100[a{i}];",
             a_idx = a_idx,
@@ -768,6 +767,82 @@ async fn compose_video(
         return Err(format!("FFmpeg failed: {}", first_lines(&stderr, 5)));
     }
     Ok(())
+}
+
+/// Probe the duration (in seconds) of an audio file via ffprobe. Returns
+/// `None` if ffprobe fails or the output can't be parsed, so the caller
+/// can fall back to the stored scene estimate.
+fn probe_audio_seconds(ffprobe: &std::path::Path, audio: &std::path::Path) -> Option<f64> {
+    let mut cmd = std::process::Command::new(ffprobe);
+    cmd.args([
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+    ])
+    .arg(audio)
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let out = cmd.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    let val = s.trim().parse::<f64>().ok()?;
+    if val.is_finite() && val > 0.0 {
+        Some(val)
+    } else {
+        None
+    }
+}
+
+/// Build the premium per-scene video filter chain for scene index `i`,
+/// reading from input pad `v_idx` and emitting the labelled output
+/// `[v{i}]`.
+///
+/// The look:
+///   - a blurred, slightly darkened + saturated copy of the page fills
+///     the frame (no black letterbox bars),
+///   - the sharp page is composited centered on top,
+///   - a slow Ken Burns zoom + vignette add cinematic motion,
+///   - an optional drop-shadow caption is drawn when a font is present.
+///
+/// This is a pure function so the exact filter shape can be unit tested;
+/// the graph itself is validated by rendering with a real ffmpeg.
+fn build_scene_video_chain(
+    v_idx: usize,
+    i: usize,
+    w: u32,
+    h: u32,
+    frames: u32,
+    caption: Option<&str>,
+) -> String {
+    // The image is fed to `zoompan` as a single still frame (the input is
+    // NOT `-loop`ed), so `d` is the total number of output frames for the
+    // scene. `fps=25` pins the output rate; `setsar=1` + `format` keep
+    // every scene concat-compatible.
+    let mut chain = format!(
+        "[{v_idx}:v]split=2[bg{i}][fg{i}];\
+[bg{i}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=24:2,eq=brightness=-0.12:saturation=1.15[bgb{i}];\
+[fg{i}]scale={w}:{h}:force_original_aspect_ratio=decrease[fgs{i}];\
+[bgb{i}][fgs{i}]overlay=(W-w)/2:(H-h)/2,zoompan=z='min(zoom+0.0008,1.15)':d={frames}:s={w}x{h}:fps=25,vignette=PI/5,setsar=1,fps=25,format=yuv420p"
+    );
+    if let Some(safe_script) = caption {
+        chain.push_str(&format!(
+            ",drawtext=text='{safe_script}':fontcolor=white:fontsize=44:shadowcolor=black@0.8:shadowx=2:shadowy=2:box=1:boxcolor=black@0.45:boxborderw=18:x=(w-text_w)/2:y=h-90"
+        ));
+    }
+    chain.push_str(&format!("[v{i}];"));
+    chain
 }
 
 fn sanitize(name: &str) -> String {
@@ -1000,6 +1075,35 @@ mod tests {
         assert!(is_default_translator(&p));
         p.translation_provider = "openai".into();
         assert!(!is_default_translator(&p));
+    }
+
+    #[test]
+    fn scene_chain_has_premium_elements() {
+        let chain = build_scene_video_chain(0, 0, 1920, 1080, 100, Some("hello"));
+        // Blurred, graded background instead of black letterbox bars.
+        assert!(chain.contains("split=2[bg0][fg0]"));
+        assert!(chain.contains("boxblur"));
+        assert!(chain.contains("overlay=(W-w)/2:(H-h)/2"));
+        // Frame count is passed straight through to zoompan's `d`.
+        assert!(chain.contains("zoompan"));
+        assert!(chain.contains("d=100:"));
+        assert!(chain.contains("vignette"));
+        // Caption carries a drop shadow.
+        assert!(chain.contains("drawtext=text='hello'"));
+        assert!(chain.contains("shadowx=2"));
+        // No black pad bars.
+        assert!(!chain.contains(":black"));
+        // Emits the expected labelled output.
+        assert!(chain.ends_with("[v0];"));
+    }
+
+    #[test]
+    fn scene_chain_without_font_omits_drawtext() {
+        let chain = build_scene_video_chain(2, 1, 1080, 1920, 150, None);
+        assert!(chain.contains("[2:v]split=2[bg1][fg1]"));
+        assert!(chain.contains("d=150:"));
+        assert!(!chain.contains("drawtext"));
+        assert!(chain.ends_with("[v1];"));
     }
 
     #[test]
