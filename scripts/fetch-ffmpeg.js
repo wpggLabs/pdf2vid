@@ -3,47 +3,47 @@
 // in src-tauri/binaries/ with Tauri's expected naming convention.
 //
 // Usage: node scripts/fetch-ffmpeg.js [platform]
-//   platform: win | mac | linux | all (default: current host)
+//   platform: win-x86_64 | mac-x86_64 | mac-arm64 | linux-x86_64 | all | host
+//
+// Supply-chain hardening
+// ----------------------
+// The upstream archives are not pinned by the provider (several use a
+// rolling "latest" URL), so we cannot bake a single fixed hash into
+// this script without it going stale. Instead we verify against a
+// checksum supplied out-of-band, in priority order:
+//   1. env var  FFMPEG_SHA256_<KEY>   (KEY upper-cased, `-` -> `_`)
+//   2. scripts/ffmpeg-checksums.json  ({ "<key>": "<sha256>" })
+// When a checksum is present the download must match or the build
+// aborts. When none is present we print a loud warning and record the
+// hash we saw, so a maintainer can pin it for release builds.
 
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, statSync, createWriteStream, renameSync, chmodSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { arch, platform } from "node:process";
 import { fileURLToPath } from "node:url";
-import { platform, arch } from "node:process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = join(__dirname, "..");
 const BIN_DIR = join(ROOT, "src-tauri", "binaries");
+const CHECKSUMS_FILE = join(__dirname, "ffmpeg-checksums.json");
 
 if (!existsSync(BIN_DIR)) mkdirSync(BIN_DIR, { recursive: true });
-
-// Tauri sidecar naming convention: <bin>-<target-triple><.exe on Windows>
-// See: https://v2.tauri.app/develop/sidecar/
-function tauriTarget() {
-  const os = platform;
-  const a = arch;
-  if (os === "win32") return "x86_64-pc-windows-msvc";
-  if (os === "darwin") return a === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
-  return "x86_64-unknown-linux-gnu";
-}
 
 const SOURCES = {
   "win-x86_64": {
     url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
     extract: (zipPath, outDir) => {
-      // zip extraction handled by caller via PowerShell Expand-Archive
-      const out = execSync(
+      execSync(
         `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${outDir}\\extracted' -Force"`,
         { stdio: "inherit" },
       );
-      const glob = require("node:child_process")
-        .execSync(
-          `powershell -NoProfile -Command "Get-ChildItem -Recurse '${outDir}\\extracted' -Filter ffmpeg.exe | Select-Object -First 1 -ExpandProperty FullName"`,
-          { encoding: "utf8" },
-        )
-        .trim();
-      return glob;
+      return execSync(
+        `powershell -NoProfile -Command "Get-ChildItem -Recurse '${outDir}\\extracted' -Filter ffmpeg.exe | Select-Object -First 1 -ExpandProperty FullName"`,
+        { encoding: "utf8" },
+      ).trim();
     },
   },
   "mac-x86_64": {
@@ -64,65 +64,96 @@ const SOURCES = {
     url: "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
     extract: (tarPath, outDir) => {
       execSync(`tar -xJf "${tarPath}" -C "${outDir}"`, { stdio: "inherit" });
-      const glob = execSync(`find "${outDir}" -type f -name ffmpeg | head -1`, {
+      return execSync(`find "${outDir}" -type f -name ffmpeg | head -1`, {
         encoding: "utf8",
       }).trim();
-      return glob;
     },
   },
 };
 
-async function download(url, dest) {
+const TRIPLES = {
+  "win-x86_64": "x86_64-pc-windows-msvc",
+  "mac-x86_64": "x86_64-apple-darwin",
+  "mac-arm64": "aarch64-apple-darwin",
+  "linux-x86_64": "x86_64-unknown-linux-gnu",
+};
+
+function sha256(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function expectedChecksum(key) {
+  const envKey = `FFMPEG_SHA256_${key.toUpperCase().replace(/-/g, "_")}`;
+  if (process.env[envKey]) return process.env[envKey].trim().toLowerCase();
+  if (existsSync(CHECKSUMS_FILE)) {
+    try {
+      const map = JSON.parse(readFileSync(CHECKSUMS_FILE, "utf8"));
+      if (map[key]) return String(map[key]).trim().toLowerCase();
+    } catch (e) {
+      console.warn(`! Could not parse ${CHECKSUMS_FILE}: ${e.message}`);
+    }
+  }
+  return null;
+}
+
+function verify(key, archivePath) {
+  const actual = sha256(archivePath);
+  const expected = expectedChecksum(key);
+  if (!expected) {
+    const envKey = `FFMPEG_SHA256_${key.toUpperCase().replace(/-/g, "_")}`;
+    console.warn(
+      `! No pinned SHA-256 for '${key}'. Downloaded archive hashes to:\n    ${actual}\n` +
+        `  Pin it via scripts/ffmpeg-checksums.json or ${envKey} to harden release builds.`,
+    );
+    return;
+  }
+  if (actual !== expected) {
+    throw new Error(
+      `SHA-256 mismatch for '${key}'.\n  expected: ${expected}\n  actual:   ${actual}\n` +
+        "  Refusing to use an unverified FFmpeg binary.",
+    );
+  }
+  console.log(`✓ Verified SHA-256 for ${key}`);
+}
+
+function download(url, dest) {
   if (existsSync(dest) && statSync(dest).size > 1024 * 1024) {
     console.log(`✓ ${dest} already present (${(statSync(dest).size / 1024 / 1024).toFixed(1)} MB)`);
     return;
   }
   console.log(`↓ Downloading ${url}`);
-  execSync(
-    `curl -L --fail -o "${dest}" "${url}"`,
-    { stdio: "inherit", shell: true },
-  );
+  execSync(`curl -L --fail -o "${dest}" "${url}"`, { stdio: "inherit", shell: true });
 }
 
-function fetch(targetKey) {
-  const source = SOURCES[targetKey];
-  if (!source) throw new Error(`Unknown target: ${targetKey}`);
-  const workDir = join(BIN_DIR, ".work", targetKey);
+function fetchTarget(key) {
+  const source = SOURCES[key];
+  if (!source) throw new Error(`Unknown target: ${key}`);
+  const workDir = join(BIN_DIR, ".work", key);
   if (!existsSync(workDir)) mkdirSync(workDir, { recursive: true });
 
-  const ext = targetKey.startsWith("win") ? ".zip" : targetKey.startsWith("linux") ? ".tar.xz" : ".zip";
+  const ext = key.startsWith("win") ? ".zip" : key.startsWith("linux") ? ".tar.xz" : ".zip";
   const archive = join(workDir, `ffmpeg${ext}`);
 
-  return download(source.url, archive).then(() => {
-    const extracted = source.extract(archive, workDir);
-    const triple = tauriTargetForKey(targetKey);
-    const sidecarName = `ffmpeg-${triple}${targetKey.startsWith("win") ? ".exe" : ""}`;
-    const finalPath = join(BIN_DIR, sidecarName);
-    renameSync(extracted, finalPath);
-    if (!targetKey.startsWith("win")) chmodSync(finalPath, 0o755);
-    console.log(`✓ Sidecar: ${finalPath}`);
-    return finalPath;
-  });
-}
+  download(source.url, archive);
+  verify(key, archive);
 
-function tauriTargetForKey(key) {
-  if (key === "win-x86_64") return "x86_64-pc-windows-msvc";
-  if (key === "mac-x86_64") return "x86_64-apple-darwin";
-  if (key === "mac-arm64") return "aarch64-apple-darwin";
-  if (key === "linux-x86_64") return "x86_64-unknown-linux-gnu";
-  throw new Error(`Unknown key ${key}`);
+  const extracted = source.extract(archive, workDir);
+  const sidecarName = `ffmpeg-${TRIPLES[key]}${key.startsWith("win") ? ".exe" : ""}`;
+  const finalPath = join(BIN_DIR, sidecarName);
+  renameSync(extracted, finalPath);
+  if (!key.startsWith("win")) chmodSync(finalPath, 0o755);
+  console.log(`✓ Sidecar: ${finalPath}`);
+  return finalPath;
 }
 
 function currentHostKey() {
-  const os = platform;
-  const a = arch;
-  if (os === "win32") return "win-x86_64";
-  if (os === "darwin") return a === "arm64" ? "mac-arm64" : "mac-x86_64";
-  if (os === "linux") return "linux-x86_64";
-  throw new Error(`Unsupported host: ${os}/${a}`);
+  if (platform === "win32") return "win-x86_64";
+  if (platform === "darwin") return arch === "arm64" ? "mac-arm64" : "mac-x86_64";
+  if (platform === "linux") return "linux-x86_64";
+  throw new Error(`Unsupported host: ${platform}/${arch}`);
 }
 
-async function main() {
+function main() {
   const arg = process.argv[2] ?? "host";
   let keys = [];
   if (arg === "host") keys = [currentHostKey()];
@@ -132,7 +163,7 @@ async function main() {
   console.log(`Fetching FFmpeg for: ${keys.join(", ")}`);
   for (const key of keys) {
     try {
-      await fetch(key);
+      fetchTarget(key);
     } catch (e) {
       console.error(`✗ ${key}: ${e.message}`);
       process.exitCode = 1;

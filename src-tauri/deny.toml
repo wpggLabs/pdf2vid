@@ -1,0 +1,49 @@
+# cargo-deny configuration — supply-chain gate for the Rust crate.
+# Run locally with:  cargo deny --manifest-path src-tauri/Cargo.toml check
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+# RustSec advisory database. Known vulnerabilities fail the build; yanked
+# crates and unmaintained notices warn (they are informational, not
+# exploitable on their own).
+version = 2
+yanked = "warn"
+ignore = []
+
+[bans]
+# Multiple versions of the same crate bloat the binary but are common in
+# large dependency trees (Tauri pulls a lot in), so warn rather than deny.
+multiple-versions = "warn"
+wildcards = "warn"
+# Deny crates known to be problematic; add entries as needed, e.g.
+# deny = [{ name = "openssl-sys" }]
+deny = []
+
+[sources]
+# Only allow crates from the canonical registry / trusted git sources.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[licenses]
+# Permit the standard permissive licenses used across the Rust ecosystem.
+# A dependency under anything not listed here will fail the build so a
+# human can review the license before it ships.
+version = 2
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "MPL-2.0",
+  "CC0-1.0",
+  "Unlicense",
+  "OpenSSL",
+  "BSL-1.0",
+]
+confidence-threshold = 0.9
