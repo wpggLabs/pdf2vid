@@ -135,8 +135,24 @@ async fn run_export_inner(
                     continue;
                 }
                 current += 1;
-                let result =
-                    argos::translate("en", argos_lang_code(&project.language), &scene.script).await;
+                let translate_progress = |line: &str| {
+                    emit_progress(
+                        &app,
+                        &request.job_id,
+                        "Translating",
+                        line,
+                        5,
+                        Some(current),
+                        Some(total),
+                    );
+                };
+                let result = argos::translate(
+                    "en",
+                    argos_lang_code(&project.language),
+                    &scene.script,
+                    &translate_progress,
+                )
+                .await;
                 let mut s = scene.clone();
                 match result {
                     Ok(translated_text) => s.translated_script = Some(translated_text),
@@ -296,8 +312,28 @@ async fn run_export_inner(
         let voice_name = resolve_voice(&project, &script);
         let audio_path = audio_dir.join(format!("scene-{}.mp3", scene.id));
 
-        let result =
-            synthesize_scene_audio(&app, &project, &script, &voice_name, &audio_path).await;
+        // Forward model runtime progress (e.g. first-run weight downloads)
+        // live to the UI so a slow first synth shows movement.
+        let synth_progress = |line: &str| {
+            emit_progress(
+                &app,
+                &request.job_id,
+                "Synthesizing",
+                line,
+                30,
+                Some(current),
+                Some(total),
+            );
+        };
+        let result = synthesize_scene_audio(
+            &app,
+            &project,
+            &script,
+            &voice_name,
+            &audio_path,
+            &synth_progress,
+        )
+        .await;
 
         let cues = match result {
             Ok(cues) => cues,
@@ -1052,6 +1088,7 @@ async fn synthesize_scene_audio(
     text: &str,
     voice_name: &str,
     audio_path: &std::path::Path,
+    on_progress: crate::subprocess::ProgressFn<'_>,
 ) -> Result<Vec<edgetts::CaptionCue>, String> {
     let primary = project.voice_provider.as_str();
     let mut attempts: Vec<&str> = vec![primary];
@@ -1069,7 +1106,17 @@ async fn synthesize_scene_audio(
 
     let mut last_err: Option<String> = None;
     for provider in attempts {
-        match synthesize_with_provider(app, provider, project, text, voice_name, audio_path).await {
+        match synthesize_with_provider(
+            app,
+            provider,
+            project,
+            text,
+            voice_name,
+            audio_path,
+            on_progress,
+        )
+        .await
+        {
             Ok(cues) => return Ok(cues),
             Err(e) => {
                 let is_hard = e.starts_with("No API key")
@@ -1093,6 +1140,7 @@ async fn synthesize_with_provider(
     text: &str,
     voice_name: &str,
     audio_path: &std::path::Path,
+    on_progress: crate::subprocess::ProgressFn<'_>,
 ) -> Result<Vec<edgetts::CaptionCue>, String> {
     // Only edge-tts exposes word-accurate subtitle timing; the other
     // providers return an empty cue list and the caller falls back to
@@ -1109,21 +1157,27 @@ async fn synthesize_with_provider(
             (resp.audio_base64, resp.cues)
         }
         "kokoro" => {
-            let resp = kokoro::synthesize(kokoro::KokoroRequest {
-                text: text.to_string(),
-                voice: voice_name.to_string(),
-                lang_code: kokoro_lang_code(&project.language).to_string(),
-                speed: project.voice_speed as f32 / 100.0,
-            })
+            let resp = kokoro::synthesize(
+                kokoro::KokoroRequest {
+                    text: text.to_string(),
+                    voice: voice_name.to_string(),
+                    lang_code: kokoro_lang_code(&project.language).to_string(),
+                    speed: project.voice_speed as f32 / 100.0,
+                },
+                on_progress,
+            )
             .await?;
             (resp.audio_base64, Vec::new())
         }
         "chatterbox" => {
             // Chatterbox uses the same ISO language ids as Argos.
-            let resp = chatterbox::synthesize(chatterbox::ChatterboxRequest {
-                text: text.to_string(),
-                language_id: argos_lang_code(&project.language).to_string(),
-            })
+            let resp = chatterbox::synthesize(
+                chatterbox::ChatterboxRequest {
+                    text: text.to_string(),
+                    language_id: argos_lang_code(&project.language).to_string(),
+                },
+                on_progress,
+            )
             .await?;
             (resp.audio_base64, Vec::new())
         }

@@ -86,7 +86,12 @@ fn which(name: &str) -> Option<PathBuf> {
 
 /// Translate `text` from `from_code` to `to_code` (ISO 639-1 codes, e.g.
 /// `en`, `es`, `ja`). Returns the translated text.
-pub async fn translate(from_code: &str, to_code: &str, text: &str) -> Result<String, String> {
+pub async fn translate(
+    from_code: &str,
+    to_code: &str,
+    text: &str,
+    on_progress: crate::subprocess::ProgressFn<'_>,
+) -> Result<String, String> {
     if from_code.is_empty() || to_code.is_empty() {
         return Err("Argos: unsupported language pair".into());
     }
@@ -123,16 +128,14 @@ pub async fn translate(from_code: &str, to_code: &str, text: &str) -> Result<Str
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = cmd
-        .output()
+    let (status, stdout, stderr) = crate::subprocess::run_with_progress(cmd, on_progress)
         .map_err(|e| format!("Failed to spawn argostranslate: {e}"))?;
     let _ = std::fs::remove_file(&text_path);
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    if !status.success() {
         return Err(format!("Argos failed: {}", first_lines(&stderr, 5)));
     }
-    let out = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let out = stdout.trim().to_string();
     if out.is_empty() {
         return Err("Argos produced empty output".into());
     }
@@ -149,13 +152,13 @@ mod tests {
 
     #[test]
     fn empty_pair_is_rejected() {
-        let r = futures::executor::block_on(translate("", "es", "hola"));
+        let r = futures::executor::block_on(translate("", "es", "hola", &|_| {}));
         assert!(r.is_err());
     }
 
     #[test]
     fn same_language_is_identity() {
-        let r = futures::executor::block_on(translate("en", "en", "hello")).unwrap();
+        let r = futures::executor::block_on(translate("en", "en", "hello", &|_| {})).unwrap();
         assert_eq!(r, "hello");
     }
 

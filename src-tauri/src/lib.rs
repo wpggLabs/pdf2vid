@@ -10,6 +10,7 @@ pub mod models;
 pub mod providers;
 pub mod render;
 pub mod state;
+pub mod subprocess;
 pub mod types;
 
 use crate::state::AppState;

@@ -276,7 +276,7 @@ pub async fn translate_text(
     // route here too, so older saved projects keep working.)
     if provider == "argos" || provider == "marian" || provider.is_empty() {
         let to = crate::providers::argos_lang_code(&target_language);
-        return crate::argos::translate("en", to, &text).await;
+        return crate::argos::translate("en", to, &text, &|_| {}).await;
     }
     let req = cloud::TranslationRequest {
         text,
@@ -324,12 +324,15 @@ pub async fn preview_voice(
             // A kokoro voice id's first letter is its language code
             // (e.g. `af_heart` -> `a`).
             let lang = voice.chars().next().map(String::from).unwrap_or_default();
-            let resp = kokoro::synthesize(kokoro::KokoroRequest {
-                text,
-                voice,
-                lang_code: lang,
-                speed: speed.unwrap_or(100) as f32 / 100.0,
-            })
+            let resp = kokoro::synthesize(
+                kokoro::KokoroRequest {
+                    text,
+                    voice,
+                    lang_code: lang,
+                    speed: speed.unwrap_or(100) as f32 / 100.0,
+                },
+                &|_| {},
+            )
             .await?;
             base64::Engine::decode(
                 &base64::engine::general_purpose::STANDARD,
@@ -339,10 +342,13 @@ pub async fn preview_voice(
         }
         "chatterbox" => {
             // Frontend sets the voice value to the language id.
-            let resp = chatterbox::synthesize(chatterbox::ChatterboxRequest {
-                text,
-                language_id: voice,
-            })
+            let resp = chatterbox::synthesize(
+                chatterbox::ChatterboxRequest {
+                    text,
+                    language_id: voice,
+                },
+                &|_| {},
+            )
             .await?;
             base64::Engine::decode(
                 &base64::engine::general_purpose::STANDARD,

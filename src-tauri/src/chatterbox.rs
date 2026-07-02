@@ -86,7 +86,10 @@ fn which(name: &str) -> Option<PathBuf> {
     None
 }
 
-pub async fn synthesize(req: ChatterboxRequest) -> Result<ChatterboxResponse, String> {
+pub async fn synthesize(
+    req: ChatterboxRequest,
+    on_progress: crate::subprocess::ProgressFn<'_>,
+) -> Result<ChatterboxResponse, String> {
     if req.language_id.is_empty() {
         return Err("Chatterbox: unsupported language".into());
     }
@@ -122,13 +125,11 @@ pub async fn synthesize(req: ChatterboxRequest) -> Result<ChatterboxResponse, St
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = cmd
-        .output()
+    let (status, _stdout, stderr) = crate::subprocess::run_with_progress(cmd, on_progress)
         .map_err(|e| format!("Failed to spawn chatterbox: {e}"))?;
     let _ = std::fs::remove_file(&text_path);
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    if !status.success() {
         let _ = std::fs::remove_file(&out_path);
         return Err(format!("chatterbox failed: {}", first_lines(&stderr, 5)));
     }
@@ -155,10 +156,13 @@ mod tests {
 
     #[test]
     fn empty_language_is_rejected_fast() {
-        let r = futures::executor::block_on(synthesize(ChatterboxRequest {
-            text: "hello".into(),
-            language_id: String::new(),
-        }));
+        let r = futures::executor::block_on(synthesize(
+            ChatterboxRequest {
+                text: "hello".into(),
+                language_id: String::new(),
+            },
+            &|_| {},
+        ));
         assert!(r.is_err());
         assert!(r.unwrap_err().contains("unsupported language"));
     }

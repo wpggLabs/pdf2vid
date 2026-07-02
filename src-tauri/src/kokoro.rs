@@ -99,7 +99,10 @@ fn which(name: &str) -> Option<PathBuf> {
     None
 }
 
-pub async fn synthesize(req: KokoroRequest) -> Result<KokoroResponse, String> {
+pub async fn synthesize(
+    req: KokoroRequest,
+    on_progress: crate::subprocess::ProgressFn<'_>,
+) -> Result<KokoroResponse, String> {
     if req.lang_code.is_empty() {
         return Err(
             "Kokoro does not support the selected language. Use edge-tts or a cloud voice.".into(),
@@ -139,13 +142,11 @@ pub async fn synthesize(req: KokoroRequest) -> Result<KokoroResponse, String> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let output = cmd
-        .output()
+    let (status, _stdout, stderr) = crate::subprocess::run_with_progress(cmd, on_progress)
         .map_err(|e| format!("Failed to spawn kokoro: {e}"))?;
     let _ = std::fs::remove_file(&text_path);
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    if !status.success() {
         let _ = std::fs::remove_file(&out_path);
         return Err(format!("kokoro failed: {}", first_lines(&stderr, 5)));
     }
@@ -174,12 +175,15 @@ mod tests {
     fn empty_lang_is_rejected_fast() {
         // Should not even attempt to spawn Python for an unsupported language.
         let rt = std::thread::spawn(|| {
-            futures::executor::block_on(synthesize(KokoroRequest {
-                text: "hola".into(),
-                voice: "af_heart".into(),
-                lang_code: String::new(),
-                speed: 1.0,
-            }))
+            futures::executor::block_on(synthesize(
+                KokoroRequest {
+                    text: "hola".into(),
+                    voice: "af_heart".into(),
+                    lang_code: String::new(),
+                    speed: 1.0,
+                },
+                &|_| {},
+            ))
         })
         .join()
         .unwrap();
