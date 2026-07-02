@@ -1,5 +1,5 @@
+import { Pause, Play, SkipBack, SkipForward, X } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
-import { X, Play, Pause, SkipBack, SkipForward } from "@phosphor-icons/react";
 import { previewVoice } from "../backend";
 import type { Scene } from "../types";
 
@@ -21,7 +21,14 @@ interface Props {
  * and reset, and the request-sequence guard prevents stale responses from
  * clobbering the new scene's audio.
  */
-export function PreviewModal({ onClose, scene, voiceProvider, voice, scenes, onSceneChange }: Props) {
+export function PreviewModal({
+  onClose,
+  scene,
+  voiceProvider,
+  voice,
+  scenes,
+  onSceneChange,
+}: Props) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -163,11 +170,7 @@ export function PreviewModal({ onClose, scene, voiceProvider, voice, scenes, onS
             disabled={playDisabled}
             aria-label={playing ? "Pause" : "Play"}
           >
-            {loading
-              ? "…"
-              : playing
-              ? <Pause weight="fill" />
-              : <Play weight="fill" />}
+            {loading ? "…" : playing ? <Pause weight="fill" /> : <Play weight="fill" />}
           </button>
           <button onClick={goNext} aria-label="Next scene">
             <SkipForward weight="fill" />

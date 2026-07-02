@@ -115,7 +115,8 @@ fn model_registry() -> Vec<ModelSpec> {
             id: "piper-en_US-amy".into(),
             family: "piper".into(),
             label: "Amy · English (US)".into(),
-            url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/".into(),
+            url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/"
+                .into(),
             size_bytes: 65_000_000,
             sha256: String::new(),
             license: "CC-BY-4.0".into(),
@@ -142,7 +143,9 @@ pub fn list_models(app: &AppHandle) -> Vec<crate::types::ModelInfo> {
         .map(|spec| {
             let installed = is_model_installed(app, &spec.id);
             let path = if installed {
-                model_path(app, &spec.id).ok().map(|p| p.to_string_lossy().to_string())
+                model_path(app, &spec.id)
+                    .ok()
+                    .map(|p| p.to_string_lossy().to_string())
             } else {
                 None
             };
@@ -203,7 +206,14 @@ pub async fn download_model(
     let dir = model_path(app, model_id)?;
 
     let files = if spec.family == "marian" {
-        vec!["config.json", "tokenizer.json", "model.safetensors", "vocab.json", "source.spm", "target.spm"]
+        vec![
+            "config.json",
+            "tokenizer.json",
+            "model.safetensors",
+            "vocab.json",
+            "source.spm",
+            "target.spm",
+        ]
     } else if spec.family == "piper" {
         vec!["config.json", "model.onnx", "model.onnx.json"]
     } else {
@@ -233,14 +243,19 @@ pub async fn download_model(
             .map_err(|e| format!("Failed to fetch {url}: {e}"))?;
 
         if !resp.status().is_success() {
-            return Err(format!("Download failed for {file}: HTTP {}", resp.status()));
+            return Err(format!(
+                "Download failed for {file}: HTTP {}",
+                resp.status()
+            ));
         }
 
-        let total = resp.content_length().unwrap_or(spec.size_bytes / files_count);
+        let total = resp
+            .content_length()
+            .unwrap_or(spec.size_bytes / files_count);
         let mut downloaded: u64 = 0;
         let mut stream = resp.bytes_stream();
-        let mut file_handle = std::fs::File::create(&target)
-            .map_err(|e| format!("Cannot write {target:?}: {e}"))?;
+        let mut file_handle =
+            std::fs::File::create(&target).map_err(|e| format!("Cannot write {target:?}: {e}"))?;
 
         use futures_util::StreamExt;
         while let Some(chunk) = stream.next().await {
@@ -319,9 +334,22 @@ mod tests {
     #[test]
     fn registry_includes_all_advertised_languages() {
         let registry = model_registry();
-        for lang in ["Spanish", "French", "German", "Portuguese", "Hindi", "Japanese", "Korean", "Chinese (Simplified)", "Arabic"] {
+        for lang in [
+            "Spanish",
+            "French",
+            "German",
+            "Portuguese",
+            "Hindi",
+            "Japanese",
+            "Korean",
+            "Chinese (Simplified)",
+            "Arabic",
+        ] {
             let id = model_id_for_pair(lang);
-            assert!(registry.iter().any(|m| m.id == id), "missing model for {lang}");
+            assert!(
+                registry.iter().any(|m| m.id == id),
+                "missing model for {lang}"
+            );
         }
     }
 

@@ -1,18 +1,21 @@
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import type { Scene } from "./types";
 import { readPdfFile } from "./backend";
+import type { Scene } from "./types";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 function sentence(text: string) {
   const cleaned = text.replace(/\s+/g, " ").trim();
-  return cleaned.match(/[^.!?。！？]+[.!?。！？]?/g)?.map((item) => item.trim()).filter(Boolean) ?? [];
+  return (
+    cleaned
+      .match(/[^.!?。！？]+[.!?。！？]?/g)
+      ?.map((item) => item.trim())
+      .filter(Boolean) ?? []
+  );
 }
 
-export type PdfSource =
-  | { kind: "file"; file: File }
-  | { kind: "path"; path: string };
+export type PdfSource = { kind: "file"; file: File } | { kind: "path"; path: string };
 
 export interface PdfImportResult {
   scenes: Scene[];
@@ -72,7 +75,7 @@ async function parsePdfViaBlob(
   signal?: AbortSignal,
 ): Promise<PdfImportResult> {
   const blobUrl = URL.createObjectURL(file);
-  let document;
+  let document: Awaited<ReturnType<typeof pdfjs.getDocument>["promise"]>;
   try {
     document = await pdfjs.getDocument({
       url: blobUrl,
@@ -115,17 +118,7 @@ async function extractScenes(
     onProgress?.(index, document.numPages);
 
     const page = await document.getPage(index);
-    const viewport = page.getViewport({ scale: 0.42 });
-    const canvas = window.document.createElement("canvas");
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    await page.render({ canvas, canvasContext: canvas.getContext("2d")!, viewport }).promise;
-    const content = await page.getTextContent();
-    const text = content.items
-      .map((item) => ("str" in item ? item.str : ""))
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .trim();
+    const text = await extractPageText(page);
 
     if (!text) {
       // Skip this page; remember it for the status banner.
@@ -135,6 +128,12 @@ async function extractScenes(
     }
 
     const script = sentence(text).slice(0, 3).join(" ") || text;
+    const thumbnail = await renderPageThumbnail(page).catch((err) => {
+      // Thumbnail rendering is best-effort. We never want it to fail
+      // the whole import — the text content is the primary artifact.
+      console.warn("thumbnail render failed for page", index, err);
+      return "";
+    });
     scenes.push({
       id: crypto.randomUUID(),
       page: index,
@@ -142,7 +141,7 @@ async function extractScenes(
       script,
       duration: Math.max(4, Math.ceil(script.split(/\s+/).length / 2.5)),
       selected: true,
-      thumbnail: canvas.toDataURL("image/jpeg", 0.82),
+      thumbnail,
     });
     page.cleanup();
   }
@@ -157,4 +156,38 @@ async function extractScenes(
   }
 
   return { scenes, skippedPages };
+}
+
+type PdfPage = import("pdfjs-dist").PDFPageProxy;
+
+/**
+ * Extract the trimmed text content of a PDF page. Pulled out of
+ * `extractScenes` so it can be unit-tested independently of the
+ * canvas rendering path.
+ */
+export async function extractPageText(page: PdfPage): Promise<string> {
+  const content = await page.getTextContent();
+  return content.items
+    .map((item) => ("str" in item ? item.str : ""))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Render a thumbnail JPEG for a PDF page. Returns a data URL string
+ * suitable for `<img src>`. Returns an empty string if rendering
+ * fails for any reason (the rest of the import must still succeed).
+ */
+export async function renderPageThumbnail(page: PdfPage): Promise<string> {
+  const viewport = page.getViewport({ scale: 0.42 });
+  const canvas = window.document.createElement("canvas");
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return "";
+  }
+  await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+  return canvas.toDataURL("image/jpeg", 0.82);
 }

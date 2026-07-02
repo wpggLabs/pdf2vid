@@ -5,31 +5,40 @@ use crate::models;
 use crate::providers::provider_list;
 use crate::render;
 use crate::state::AppState;
-use crate::types::{
-    ExportRequest, ModelInfo, Project, ProviderList, SystemStatus,
-};
+use crate::types::{ExportRequest, ModelInfo, Project, ProviderList, SystemStatus};
 use base64::Engine as _;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
 fn project_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join("current-project.json"))
 }
 
 #[tauri::command]
 pub fn system_status() -> SystemStatus {
+    // Font discovery reads from the bundled render cache. We use a
+    // deterministic temp dir here because system_status runs at app
+    // startup before any cache layout exists; the resolver is cheap
+    // enough that this is fine, and the discovery stays portable
+    // because it only inspects well-known system font directories.
+    let font_probe_dir = std::env::temp_dir().join("pdf2vid-font-probe");
+    let _ = std::fs::create_dir_all(&font_probe_dir);
+    let font = crate::font::resolve_font(&font_probe_dir);
     SystemStatus {
         ffmpeg: check_ffmpeg(),
         ffprobe: check_ffprobe(),
         platform: std::env::consts::OS.to_string(),
         ffmpeg_sidecar_ready: crate::ffmpeg::ffmpeg_path()
-            .map(|p| p.parent().map(|dir| dir.join("ffmpeg").exists() || dir.join("ffmpeg.exe").exists()).unwrap_or(false))
+            .map(|p| {
+                p.parent()
+                    .map(|dir| dir.join("ffmpeg").exists() || dir.join("ffmpeg.exe").exists())
+                    .unwrap_or(false)
+            })
             .unwrap_or(false),
+        font_available: font.found,
+        font_path: font.render_path,
     }
 }
 
@@ -46,7 +55,9 @@ pub fn load_project(app: AppHandle) -> Result<Option<Project>, String> {
         return Ok(None);
     }
     let data = std::fs::read(path).map_err(|e| e.to_string())?;
-    serde_json::from_slice(&data).map(Some).map_err(|e| e.to_string())
+    serde_json::from_slice(&data)
+        .map(Some)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -152,17 +163,20 @@ pub fn dependency_status() -> DependencyStatus {
         hints.push(match std::env::consts::OS {
             "windows" => InstallHint {
                 tool: "python".into(),
-                message: "Python 3.8+ with the edge-tts package is the default voice engine.".into(),
+                message: "Python 3.8+ with the edge-tts package is the default voice engine."
+                    .into(),
                 command: "winget install Python.Python.3.12 && pip install edge-tts".into(),
             },
             "macos" => InstallHint {
                 tool: "python".into(),
-                message: "Python 3.8+ with the edge-tts package is the default voice engine.".into(),
+                message: "Python 3.8+ with the edge-tts package is the default voice engine."
+                    .into(),
                 command: "brew install python@3.12 && pip3 install edge-tts".into(),
             },
             _ => InstallHint {
                 tool: "python".into(),
-                message: "Python 3.8+ with the edge-tts package is the default voice engine.".into(),
+                message: "Python 3.8+ with the edge-tts package is the default voice engine."
+                    .into(),
                 command: "sudo apt install python3 python3-pip && pip3 install edge-tts".into(),
             },
         });
@@ -220,10 +234,7 @@ pub fn list_models(app: AppHandle) -> Vec<ModelInfo> {
 }
 
 #[tauri::command]
-pub async fn download_model(
-    app: AppHandle,
-    model_id: String,
-) -> Result<String, String> {
+pub async fn download_model(app: AppHandle, model_id: String) -> Result<String, String> {
     // Per-download cancel flag is registered in the global AppState. This
     // is the same pattern as the export job so the user can cancel a long
     // model download from the UI. If the user starts a second download the
@@ -287,13 +298,17 @@ pub async fn preview_voice(
 ) -> Result<String, String> {
     let audio = match provider.as_str() {
         "edge" => {
-            let resp = edgetts::synthesize(edgetts::TtsRequest {
+            let resp = match edgetts::synthesize(edgetts::TtsRequest {
                 text,
                 voice,
                 rate: None,
                 pitch: None,
             })
-            .await?;
+            .await
+            {
+                Ok(r) => r,
+                Err(e) => return Err(format!("edge-tts synthesis failed: {e}")),
+            };
             base64::Engine::decode(
                 &base64::engine::general_purpose::STANDARD,
                 resp.audio_base64.as_bytes(),
@@ -308,11 +323,8 @@ pub async fn preview_voice(
                 .map_err(|e| e.to_string())?
                 .get_password()
                 .map_err(|_| "No OpenAI API key".to_string())?;
-            let resp = cloud::openai_tts(&key, cloud::CloudSynthesisRequest {
-                text,
-                voice,
-            })
-            .await?;
+            let resp =
+                cloud::openai_tts(&key, cloud::CloudSynthesisRequest { text, voice }).await?;
             base64::Engine::decode(
                 &base64::engine::general_purpose::STANDARD,
                 resp.audio_base64.as_bytes(),
@@ -325,10 +337,11 @@ pub async fn preview_voice(
                 .get_password()
                 .map_err(|_| "No ElevenLabs API key".to_string())?;
             let voice_id = voice.clone();
-            let resp = cloud::elevenlabs_tts(&key, &voice_id, cloud::CloudSynthesisRequest {
-                text,
-                voice,
-            })
+            let resp = cloud::elevenlabs_tts(
+                &key,
+                &voice_id,
+                cloud::CloudSynthesisRequest { text, voice },
+            )
             .await?;
             base64::Engine::decode(
                 &base64::engine::general_purpose::STANDARD,

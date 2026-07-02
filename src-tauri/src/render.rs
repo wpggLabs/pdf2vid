@@ -1,10 +1,14 @@
 use crate::cloud;
 use crate::edgetts;
 use crate::ffmpeg::{ensure_ffmpeg_or_error, ensure_ffprobe_or_error, Aspect};
+use crate::font::{resolve_font, FontRenderKind, FontResolution};
 use crate::models;
 use crate::providers::edge_voice_for_language;
 use crate::state::{cache_dir, AppState};
-use crate::types::{ExportComplete, ExportError, ExportProgress, ExportRequest, Project, TranslationWarning};
+use crate::types::{
+    ExportComplete, ExportError, ExportProgress, ExportRequest, Project, ProjectWarning,
+    TranslationWarning, WarningCode,
+};
 use base64::Engine;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,20 +66,46 @@ async fn run_export_inner(
         return Err("Select at least one scene".into());
     }
 
-    emit_progress(&app, &request.job_id, "Planning", "Preparing project", 2, None, None);
+    emit_progress(
+        &app,
+        &request.job_id,
+        "Planning",
+        "Preparing project",
+        2,
+        None,
+        None,
+    );
 
     let cache = cache_dir(&app)?;
     let audio_dir = cache.join("audio");
     let visuals_dir = cache.join("visuals");
+    let render_dir = cache.join("render");
     std::fs::create_dir_all(&audio_dir).map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&visuals_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&render_dir).map_err(|e| e.to_string())?;
+
+    // Resolve the drawtext font once for the whole export. We always
+    // copy into `render_dir/font.ttf` so the path we hand to FFmpeg has
+    // no colons or backslashes — see `font.rs` for the full reasoning.
+    let font_resolution = resolve_font(&render_dir);
+    let font_warning = font_warning_from(&font_resolution);
 
     let total = selected.len() as u32;
     let mut current = 0u32;
 
+    // Structured warnings collected throughout the pipeline. The UI
+    // reads these as typed records instead of parsing stringly-typed
+    // status messages.
+    let mut warnings: Vec<ProjectWarning> = Vec::new();
+    if let Some(w) = font_warning.clone() {
+        warnings.push(w);
+    }
+
     // Stage 1: translate
     let mut translation_warnings: Vec<TranslationWarning> = Vec::new();
-    let translated_scenes = if project.translation_provider == "marian" || is_default_translator(&project) {
+    let translated_scenes = if project.translation_provider == "marian"
+        || is_default_translator(&project)
+    {
         if !is_english(&project.language) {
             emit_progress(
                 &app,
@@ -123,6 +153,15 @@ async fn run_export_inner(
                                 scene.page
                             ),
                         });
+                        warnings.push(
+                            ProjectWarning::warning(
+                                WarningCode::UntranslatedScene,
+                                format!("Page {} used the source script: MarianMT is not yet implemented", scene.page),
+                            )
+                            .with_scene(scene.id.clone(), scene.page)
+                            .with_detail(e.to_string())
+                            .with_fix("Switch the translation provider to OpenAI or Google Cloud in the inspector."),
+                        );
                         log::warn!("MarianMT failed for page {}: {}", scene.page, e);
                         s.translated_script = Some(scene.script.clone());
                     }
@@ -181,10 +220,21 @@ async fn run_export_inner(
             s.translated_script = match result {
                 Ok(r) => Some(r.translated_text),
                 Err(e) => {
+                    warnings.push(
+                        ProjectWarning::error(
+                            WarningCode::UnsupportedProvider,
+                            format!(
+                                "Translation provider '{}' is not yet implemented",
+                                project.translation_provider
+                            ),
+                        )
+                        .with_scene(scene.id.clone(), scene.page)
+                        .with_detail(e.clone()),
+                    );
                     return Err(format!(
                         "Translation failed for scene {}: {}",
                         scene.page, e
-                    ))
+                    ));
                 }
             };
             translated.push(s);
@@ -203,7 +253,15 @@ async fn run_export_inner(
 
     // Stage 2: synthesize voice
     let mut audio_paths: Vec<(String, PathBuf)> = Vec::new();
-    emit_progress(&app, &request.job_id, "Synthesizing", "Generating narration", 30, Some(0), Some(total));
+    emit_progress(
+        &app,
+        &request.job_id,
+        "Synthesizing",
+        "Generating narration",
+        30,
+        Some(0),
+        Some(total),
+    );
     current = 0;
     for scene in &translated_scenes {
         if cancel.load(Ordering::SeqCst) {
@@ -220,16 +278,23 @@ async fn run_export_inner(
         let voice_name = resolve_voice(&project, &script);
         let audio_path = audio_dir.join(format!("scene-{}.mp3", scene.id));
 
-        let result = synthesize_scene_audio(
-            &app,
-            &project,
-            &script,
-            &voice_name,
-            &audio_path,
-        )
-        .await;
+        let result =
+            synthesize_scene_audio(&app, &project, &script, &voice_name, &audio_path).await;
 
-        result?;
+        if let Err(e) = result {
+            warnings.push(
+                ProjectWarning::error(
+                    WarningCode::VoiceSynthesisFailed,
+                    format!("Voice synthesis failed for page {}: {e}", scene.page),
+                )
+                .with_scene(scene.id.clone(), scene.page)
+                .with_detail(e.clone())
+                .with_fix(
+                    "Check edge-tts / API key in Settings, or pick a different voice provider.",
+                ),
+            );
+            return Err(e);
+        }
         audio_paths.push((scene.id.clone(), audio_path));
 
         emit_progress(
@@ -244,7 +309,15 @@ async fn run_export_inner(
     }
 
     // Stage 3: prepare visuals (PDF thumbnails already exist in Scene.thumbnail)
-    emit_progress(&app, &request.job_id, "Visuals", "Preparing page visuals", 65, Some(0), Some(total));
+    emit_progress(
+        &app,
+        &request.job_id,
+        "Visuals",
+        "Preparing page visuals",
+        65,
+        Some(0),
+        Some(total),
+    );
     current = 0;
     let mut visual_paths: Vec<(String, PathBuf)> = Vec::new();
     for scene in &translated_scenes {
@@ -285,7 +358,15 @@ async fn run_export_inner(
         if cancel.load(Ordering::SeqCst) {
             return Err("Cancelled".into());
         }
-        emit_progress(&app, &request.job_id, "Composing", "Rendering YouTube 1920×1080", 78, None, None);
+        emit_progress(
+            &app,
+            &request.job_id,
+            "Composing",
+            "Rendering YouTube 1920×1080",
+            78,
+            None,
+            None,
+        );
         let path = output_dir.join(format!("{}-youtube.mp4", safe_name));
         compose_video(
             state.clone(),
@@ -295,6 +376,8 @@ async fn run_export_inner(
             &audio_paths,
             Aspect::Youtube,
             &path,
+            &font_resolution,
+            &mut warnings,
         )
         .await?;
         youtube_path = Some(path.to_string_lossy().to_string());
@@ -304,7 +387,15 @@ async fn run_export_inner(
         if cancel.load(Ordering::SeqCst) {
             return Err("Cancelled".into());
         }
-        emit_progress(&app, &request.job_id, "Composing", "Rendering TikTok 1080×1920", 90, None, None);
+        emit_progress(
+            &app,
+            &request.job_id,
+            "Composing",
+            "Rendering TikTok 1080×1920",
+            90,
+            None,
+            None,
+        );
         let path = output_dir.join(format!("{}-tiktok.mp4", safe_name));
         compose_video(
             state.clone(),
@@ -314,14 +405,30 @@ async fn run_export_inner(
             &audio_paths,
             Aspect::Tiktok,
             &path,
+            &font_resolution,
+            &mut warnings,
         )
         .await?;
         tiktok_path = Some(path.to_string_lossy().to_string());
     }
 
-    emit_progress(&app, &request.job_id, "Done", "Export complete", 100, None, None);
+    emit_progress(
+        &app,
+        &request.job_id,
+        "Done",
+        "Export complete",
+        100,
+        None,
+        None,
+    );
 
     let untranslated_count = translation_warnings.len() as u32;
+    let render_fallback_used = warnings.iter().any(|w| {
+        matches!(
+            w.code,
+            WarningCode::MissingFont | WarningCode::RenderFallback
+        )
+    });
     Ok(ExportComplete {
         job_id: request.job_id,
         youtube_path,
@@ -329,6 +436,8 @@ async fn run_export_inner(
         translation_warnings,
         skipped_pages: project.skipped_pages.clone(),
         untranslated_count,
+        warnings,
+        render_fallback_used,
     })
 }
 
@@ -352,18 +461,66 @@ fn emit_progress(
     let _ = app.emit("export:progress", &payload);
 }
 
+/// Convert a font discovery result into a typed `ProjectWarning`, when
+/// one is warranted. A successful resolution produces `None`; a missing
+/// font produces a `MissingFont` warning the UI can call out.
+fn font_warning_from(resolution: &FontResolution) -> Option<ProjectWarning> {
+    if resolution.found {
+        return None;
+    }
+    Some(
+        ProjectWarning::warning(
+            WarningCode::MissingFont,
+            "No drawtext font was found on this system",
+        )
+        .with_detail(resolution.message.clone())
+        .with_fix(
+            resolution
+                .install_hint
+                .clone()
+                .unwrap_or_else(|| "Install a TrueType font and re-export.".into()),
+        ),
+    )
+}
+
+// Keep the renderer/import paths from drifting apart by deriving
+// `severity` from the resolved font kind. libass fallback would live
+// here in Phase 2.5.
+#[allow(dead_code)]
+fn font_render_kind(resolution: &FontResolution) -> FontRenderKind {
+    resolution.render_kind
+}
+
 /// Build the FFmpeg argument list for one render. Pure function so the
 /// smoke test (and any future test) can verify the filter shape without
 /// needing a Tauri runtime.
+///
+/// `font_path` is the safe render-local path to a TTF that was staged
+/// by `font::resolve_font`. When `None` the filter is rendered without
+/// `drawtext` — see `font_warning_from` for the corresponding
+/// `ProjectWarning` that the caller should surface to the user.
 pub fn build_ffmpeg_args(
     inputs: &[String],
     filter: &str,
-    output: &PathBuf,
+    output: &std::path::Path,
+    font_path: Option<&str>,
 ) -> Vec<String> {
     let mut args = vec!["-y".to_string()];
     args.extend_from_slice(inputs);
     args.push("-filter_complex".to_string());
-    args.push(filter.to_string());
+    // FFmpeg's option parser treats `:` as a separator. The caller is
+    // expected to hand us a path that is already colon-free (the font
+    // discovery helper stages under `font.ttf` precisely so this is
+    // safe), but we still pass it through `escape_fontfile_for_filter`
+    // so a CI override like `--font "C:\Foo\bar.ttf"` cannot break
+    // the filter.
+    if let Some(p) = font_path {
+        let safe = crate::font::escape_fontfile_for_filter(p);
+        let rewritten = inject_fontfile_into_filter(filter, &safe);
+        args.push(rewritten);
+    } else {
+        args.push(filter.to_string());
+    }
     args.push("-map".to_string());
     args.push("[vout]".to_string());
     args.push("-map".to_string());
@@ -389,10 +546,33 @@ pub fn build_ffmpeg_args(
     args
 }
 
+/// Rewrite each `drawtext=text='...'` clause in the filter to also
+/// carry `fontfile=<safe>`. The filter is a flat `;`-separated list
+/// of filter expressions; we only rewrite the drawtext clauses and
+/// leave everything else intact.
+fn inject_fontfile_into_filter(filter: &str, safe_fontfile: &str) -> String {
+    // `drawtext=` may appear multiple times (one per scene). Replace
+    // each occurrence by prefixing with `fontfile=...:`. Other filter
+    // expressions never start with `drawtext=`, so a literal replace
+    // is safe.
+    let needle = "drawtext=";
+    let mut out = String::with_capacity(filter.len());
+    let mut cursor = 0;
+    while let Some(idx) = filter[cursor..].find(needle) {
+        let abs = cursor + idx;
+        out.push_str(&filter[cursor..abs]);
+        out.push_str(&format!("drawtext=fontfile={safe_fontfile}:"));
+        cursor = abs + needle.len();
+    }
+    out.push_str(&filter[cursor..]);
+    out
+}
+
 /// Run FFmpeg as a cancellable child process. The child handle is
 /// registered in AppState so a concurrent `cancel_export` call can
 /// terminate it via `start_kill`. The cancel flag is polled between
 /// stages as a secondary signal (in case the OS kill races).
+#[allow(clippy::too_many_arguments)]
 async fn compose_video(
     state: tauri::State<'_, AppState>,
     cancel: Arc<AtomicBool>,
@@ -400,7 +580,9 @@ async fn compose_video(
     visuals: &[(String, PathBuf)],
     audios: &[(String, PathBuf)],
     aspect: Aspect,
-    output: &PathBuf,
+    output: &std::path::Path,
+    font: &FontResolution,
+    warnings: &mut Vec<ProjectWarning>,
 ) -> Result<(), String> {
     if cancel.load(Ordering::SeqCst) {
         return Err("Cancelled".into());
@@ -411,6 +593,12 @@ async fn compose_video(
     let mut inputs: Vec<String> = Vec::new();
     let mut filter = String::new();
     let mut audio_inputs: Vec<String> = Vec::new();
+
+    // When no font is available we strip drawtext from each scene
+    // clause (so the encode still succeeds) and record one
+    // `RenderFallback` warning per export. The frontend shows this
+    // alongside the structured warnings array.
+    let drawtext_available = font.found && font.render_path.is_some();
 
     for (i, scene) in scenes.iter().enumerate() {
         if cancel.load(Ordering::SeqCst) {
@@ -446,16 +634,28 @@ async fn compose_video(
         let safe_script = sanitize_ffmpeg_drawtext(&script);
         let seconds = scene.duration.max(1);
 
+        // Build the per-scene video chain. We always keep the
+        // scale + zoompan step; drawtext is appended only when a
+        // font was discovered.
         filter.push_str(&format!(
-            "[{v_idx}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,zoompan=z='min(zoom+0.0008,1.15)':d={seconds}*25:s={w}x{h},drawtext=text='{safe_script}':fontcolor=white:fontsize=42:box=1:boxcolor=black@0.55:boxborderw=14:x=(w-text_w)/2:y=h-80[v{i}];",
+            "[{v_idx}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,zoompan=z='min(zoom+0.0008,1.15)':d={seconds}*25:s={w}x{h}",
             v_idx = v_idx,
             w = w,
             h = h,
             seconds = seconds,
-            safe_script = safe_script,
-            i = i,
         ));
-        filter.push_str(&format!("[{a_idx}:a]aresample=44100[a{i}];", a_idx = a_idx, i = i));
+        if drawtext_available {
+            filter.push_str(&format!(
+                ",drawtext=text='{safe_script}':fontcolor=white:fontsize=42:box=1:boxcolor=black@0.55:boxborderw=14:x=(w-text_w)/2:y=h-80",
+                safe_script = safe_script,
+            ));
+        }
+        filter.push_str(&format!("[v{i}];", i = i));
+        filter.push_str(&format!(
+            "[{a_idx}:a]aresample=44100[a{i}];",
+            a_idx = a_idx,
+            i = i
+        ));
         audio_inputs.push(format!("[v{i}][a{i}]", i = i));
     }
 
@@ -466,7 +666,34 @@ async fn compose_video(
         n = audio_inputs.len()
     ));
 
-    let args = build_ffmpeg_args(&inputs, &filter, output);
+    let font_arg = if drawtext_available {
+        font.render_path.as_deref()
+    } else {
+        None
+    };
+    let args = build_ffmpeg_args(&inputs, &filter, std::path::Path::new(&output), font_arg);
+
+    if !drawtext_available {
+        // Surface this once per export — the per-scene fallback would
+        // spam the warnings list without adding information.
+        if !warnings
+            .iter()
+            .any(|w| matches!(w.code, WarningCode::RenderFallback))
+        {
+            warnings.push(
+                ProjectWarning::warning(
+                    WarningCode::RenderFallback,
+                    "No drawtext font found. Videos will render without on-screen narration.",
+                )
+                .with_detail(font.message.clone())
+                .with_fix(
+                    font.install_hint
+                        .clone()
+                        .unwrap_or_else(|| "Install a TrueType font and re-export.".into()),
+                ),
+            );
+        }
+    }
 
     let mut cmd = tokio::process::Command::new(&ffmpeg);
     cmd.args(&args)
@@ -484,11 +711,11 @@ async fn compose_video(
 
     let child_slot: Arc<tokio::sync::Mutex<Option<tokio::process::Child>>> =
         Arc::new(tokio::sync::Mutex::new(None));
-    state
-        .replace_ffmpeg_child_inner(child_slot.clone())
-        .await;
+    state.replace_ffmpeg_child_inner(child_slot.clone()).await;
 
-    let child = cmd.spawn().map_err(|e| format!("Failed to spawn ffmpeg: {e}"))?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn ffmpeg: {e}"))?;
 
     // Stash the actual PID into the slot so cancel_export can kill it.
     {
@@ -545,7 +772,13 @@ async fn compose_video(
 
 fn sanitize(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -595,9 +828,12 @@ fn elevenlabs_voice_id(_name: &str) -> String {
 fn read_api_key(provider: &str) -> Result<String, String> {
     let entry = keyring::Entry::new("com.wpgglabs.pdf2vid", provider)
         .map_err(|e| format!("Keyring error: {e}"))?;
-    entry
-        .get_password()
-        .map_err(|_| format!("No API key stored for {}. Open Settings to add one.", provider))
+    entry.get_password().map_err(|_| {
+        format!(
+            "No API key stored for {}. Open Settings to add one.",
+            provider
+        )
+    })
 }
 
 /// Synthesize one scene's audio with provider fallback.
@@ -710,10 +946,7 @@ async fn synthesize_with_provider(
             resp.audio_base64
         }
         other => {
-            return Err(format!(
-                "Voice provider '{}' is not yet implemented",
-                other
-            ));
+            return Err(format!("Voice provider '{}' is not yet implemented", other));
         }
     };
     let bytes = base64::engine::general_purpose::STANDARD
@@ -734,6 +967,7 @@ fn openai_voice_name(project: &Project) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::WarningSeverity;
 
     #[test]
     fn sanitize_strips_path_chars() {
@@ -769,16 +1003,21 @@ mod tests {
             "-i".into(),
             "/tmp/audio.mp3".into(),
         ];
-        let filter = "[0:v]scale=1920:1080[vout];[1:a]aresample=44100[aout];concat=n=1:v=1:a=1[vout][aout]".to_string();
+        let filter =
+            "[0:v]scale=1920:1080[vout];[1:a]aresample=44100[aout];concat=n=1:v=1:a=1[vout][aout]"
+                .to_string();
         let output = PathBuf::from("/tmp/out.mp4");
-        let args = build_ffmpeg_args(&inputs, &filter, &output);
+        let args = build_ffmpeg_args(&inputs, &filter, &output, None);
 
         assert_eq!(args[0], "-y");
         // Input section preserved
         assert!(args.contains(&"/tmp/visual.jpg".to_string()));
         assert!(args.contains(&"/tmp/audio.mp3".to_string()));
         // Filter is quoted as a single arg pair
-        let filter_idx = args.iter().position(|a| a == "-filter_complex").unwrap();
+        let filter_idx = args
+            .iter()
+            .position(|a| a == "-filter_complex")
+            .expect("ffmpeg args should include -filter_complex");
         assert_eq!(args[filter_idx + 1], filter);
         // Maps + codecs + output
         assert!(args.windows(2).any(|w| w == ["-map", "[vout]"]));
@@ -789,6 +1028,117 @@ mod tests {
         assert!(args.contains(&"-shortest".to_string()));
         // Output is last
         assert_eq!(args.last().unwrap(), "/tmp/out.mp4");
+    }
+
+    #[test]
+    fn build_ffmpeg_args_injects_fontfile() {
+        let inputs = vec![
+            "-loop".into(),
+            "1".into(),
+            "-i".into(),
+            "/tmp/visual.jpg".into(),
+            "-i".into(),
+            "/tmp/audio.mp3".into(),
+        ];
+        let filter = "[0:v]scale=1920:1080,drawtext=text='hi':x=10[v0];[1:a]aresample=44100[a0];[v0][a0]concat=n=1:v=1:a=1[vout][aout]".to_string();
+        let output = PathBuf::from("/tmp/out.mp4");
+        let args = build_ffmpeg_args(&inputs, &filter, &output, Some("/tmp/font.ttf"));
+        let filter_idx = args
+            .iter()
+            .position(|a| a == "-filter_complex")
+            .expect("ffmpeg args should include -filter_complex");
+        let injected = &args[filter_idx + 1];
+        // drawtext must now carry fontfile.
+        assert!(injected.contains("drawtext=fontfile=/tmp/font.ttf:text='hi'"));
+        // Original drawtext= prefix should be replaced, not duplicated.
+        assert!(!injected.contains("drawtext=text"));
+    }
+
+    #[test]
+    fn build_ffmpeg_args_injects_fontfile_into_multiple_drawtext_clauses() {
+        let inputs = vec![
+            "-i".into(),
+            "/tmp/a.jpg".into(),
+            "-i".into(),
+            "/tmp/b.jpg".into(),
+        ];
+        let filter = "[0:v]scale=10:10,drawtext=text='one':x=0[v0];[1:v]scale=10:10,drawtext=text='two':x=0[v1];[v0][v1]concat=n=2:v=1:a=0[vout]".to_string();
+        let args = build_ffmpeg_args(
+            &inputs,
+            &filter,
+            &PathBuf::from("/tmp/out.mp4"),
+            Some("/tmp/font.ttf"),
+        );
+        let filter_idx = args
+            .iter()
+            .position(|a| a == "-filter_complex")
+            .expect("ffmpeg args should include -filter_complex");
+        let injected = &args[filter_idx + 1];
+        assert_eq!(
+            injected.matches("drawtext=fontfile=/tmp/font.ttf").count(),
+            2
+        );
+    }
+
+    #[test]
+    fn build_ffmpeg_args_with_windows_style_font_path_escapes() {
+        let inputs = vec!["-i".into(), "/tmp/visual.jpg".into()];
+        let filter = "[0:v]scale=10:10,drawtext=text='hi'[vout]".to_string();
+        let args = build_ffmpeg_args(
+            &inputs,
+            &filter,
+            &PathBuf::from("/tmp/out.mp4"),
+            Some(r"C:\Windows\Fonts\arial.ttf"),
+        );
+        let filter_idx = args
+            .iter()
+            .position(|a| a == "-filter_complex")
+            .expect("ffmpeg args should include -filter_complex");
+        let injected = &args[filter_idx + 1];
+        // The colon in C:\ must be escaped, and backslashes too.
+        assert!(injected.contains(r"fontfile=C\:\\Windows\\Fonts\\arial.ttf"));
+    }
+
+    #[test]
+    fn build_ffmpeg_args_missing_font_keeps_filter_intact() {
+        let inputs = vec!["-i".into(), "/tmp/visual.jpg".into()];
+        let filter = "[0:v]scale=10:10,drawtext=text='hi'[vout]".to_string();
+        let args = build_ffmpeg_args(&inputs, &filter, &PathBuf::from("/tmp/out.mp4"), None);
+        let filter_idx = args
+            .iter()
+            .position(|a| a == "-filter_complex")
+            .expect("ffmpeg args should include -filter_complex");
+        assert_eq!(args[filter_idx + 1], filter);
+    }
+
+    #[test]
+    fn font_warning_from_returns_none_when_found() {
+        let r = FontResolution {
+            found: true,
+            source_path: Some("/tmp/a.ttf".into()),
+            render_path: Some("/tmp/font.ttf".into()),
+            render_kind: FontRenderKind::Workdir,
+            message: "ok".into(),
+            install_hint: None,
+        };
+        assert!(font_warning_from(&r).is_none());
+    }
+
+    #[test]
+    fn font_warning_from_populates_missing_font() {
+        let r = FontResolution {
+            found: false,
+            source_path: None,
+            render_path: None,
+            render_kind: FontRenderKind::None,
+            message: "no fonts".into(),
+            install_hint: Some("install dejavu".into()),
+        };
+        let w = font_warning_from(&r).unwrap();
+        assert_eq!(w.code, WarningCode::MissingFont);
+        assert_eq!(w.severity, WarningSeverity::Warning);
+        assert!(w.detail.is_some());
+        assert!(w.suggested_fix.is_some());
     }
 
     fn make_test_project() -> Project {

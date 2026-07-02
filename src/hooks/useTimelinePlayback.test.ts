@@ -1,7 +1,7 @@
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { renderHook, act } from "@testing-library/react";
-import { useTimelinePlayback } from "./useTimelinePlayback";
 import type { Scene } from "../types";
+import { useTimelinePlayback } from "./useTimelinePlayback";
 
 const scene = (id: string, duration: number, selected = true): Scene => ({
   id,

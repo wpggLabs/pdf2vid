@@ -1,0 +1,66 @@
+{
+  "host_platform": "windows",
+  "ffmpeg_version": "ffmpeg version 8.1.1-essentials_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers",
+  "font_found": true,
+  "entries": [
+    {
+      "fixture": "clean-text-3page.pdf",
+      "output_path": "../docs/manual_qa\\clean-text-3page-youtube.mp4",
+      "bytes": 139606,
+      "pages_imported": 3,
+      "pages_skipped": [],
+      "resolution": [
+        1920,
+        1080
+      ],
+      "duration_seconds": 54.056009,
+      "has_video": true,
+      "has_audio": true,
+      "font_path": "C:\\Users\\wpgg\\AppData\\Local\\Temp\\pdf2vid-qa\\font.ttf",
+      "warnings": [
+        "Skipped pages: []",
+        "Render fallback used: false"
+      ]
+    },
+    {
+      "fixture": "mixed-blank-page.pdf",
+      "output_path": "../docs/manual_qa\\mixed-blank-page-youtube.mp4",
+      "bytes": 115101,
+      "pages_imported": 3,
+      "pages_skipped": [
+        2
+      ],
+      "resolution": [
+        1920,
+        1080
+      ],
+      "duration_seconds": 41.0,
+      "has_video": true,
+      "has_audio": true,
+      "font_path": "C:\\Users\\wpgg\\AppData\\Local\\Temp\\pdf2vid-qa\\font.ttf",
+      "warnings": [
+        "Skipped pages: [2]",
+        "Render fallback used: false"
+      ]
+    },
+    {
+      "fixture": "non-english-3page.pdf",
+      "output_path": "../docs/manual_qa\\non-english-3page-youtube.mp4",
+      "bytes": 143429,
+      "pages_imported": 3,
+      "pages_skipped": [],
+      "resolution": [
+        1920,
+        1080
+      ],
+      "duration_seconds": 58.033991,
+      "has_video": true,
+      "has_audio": true,
+      "font_path": "C:\\Users\\wpgg\\AppData\\Local\\Temp\\pdf2vid-qa\\font.ttf",
+      "warnings": [
+        "Skipped pages: []",
+        "Render fallback used: false"
+      ]
+    }
+  ]
+}

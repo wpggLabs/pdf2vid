@@ -69,11 +69,7 @@ export function translateText(
   return invoke("translate_text", { provider, targetLanguage, text });
 }
 
-export function previewVoice(
-  provider: string,
-  voice: string,
-  text: string,
-): Promise<string> {
+export function previewVoice(provider: string, voice: string, text: string): Promise<string> {
   return invoke("preview_voice", { provider, voice, text });
 }
 
@@ -89,9 +85,7 @@ export async function onExportComplete(
   return listen<ExportComplete>("export:done", (event) => handler(event.payload));
 }
 
-export async function onExportError(
-  handler: (payload: ExportError) => void,
-): Promise<UnlistenFn> {
+export async function onExportError(handler: (payload: ExportError) => void): Promise<UnlistenFn> {
   return listen<ExportError>("export:error", (event) => handler(event.payload));
 }
 

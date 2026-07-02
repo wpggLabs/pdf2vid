@@ -1,10 +1,11 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { renderHook, act, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { usePreviewVoice } from "./usePreviewVoice";
 
 vi.mock("../backend", () => ({
-  previewVoice: vi.fn(async (_provider: string, _voice: string, text: string) =>
-    `data:audio/mpeg;base64,mock-${text}`,
+  previewVoice: vi.fn(
+    async (_provider: string, _voice: string, text: string) =>
+      `data:audio/mpeg;base64,mock-${text}`,
   ),
 }));
 

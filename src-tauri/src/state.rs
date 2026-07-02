@@ -50,10 +50,7 @@ impl AppState {
     }
 
     /// Register a new model download. Replaces any in-flight download.
-    pub async fn start_model_download(
-        &self,
-        model_id: String,
-    ) -> Arc<AtomicBool> {
+    pub async fn start_model_download(&self, model_id: String) -> Arc<AtomicBool> {
         let cancel_flag = Arc::new(AtomicBool::new(false));
         let mut current = self.model_download.lock().await;
         // If a previous download is still active, signal it to cancel so
@@ -121,10 +118,7 @@ impl AppState {
 }
 
 pub fn app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }

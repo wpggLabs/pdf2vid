@@ -1,7 +1,7 @@
-import { X, Key, Gear } from "@phosphor-icons/react";
+import { Gear, Key, X } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
-import { getProviderList, storeApiKey } from "../backend";
 import type { ProviderList } from "../api";
+import { getProviderList, storeApiKey } from "../backend";
 import type { ProviderCategory, ProviderOption } from "../types";
 
 interface Props {
@@ -37,9 +37,7 @@ export function SettingsModal({ onClose, onOpenModels }: Props) {
     }
   }
 
-  const options: ProviderOption[] = providers
-    ? providers[category]
-    : [];
+  const options: ProviderOption[] = providers ? providers[category] : [];
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -76,10 +74,7 @@ export function SettingsModal({ onClose, onOpenModels }: Props) {
 
         <label>
           Provider
-          <select
-            value={providerId}
-            onChange={(event) => setProviderId(event.target.value)}
-          >
+          <select value={providerId} onChange={(event) => setProviderId(event.target.value)}>
             {options.map((provider) => (
               <option key={provider.id} value={provider.id}>
                 {provider.label} · {provider.kind === "local" ? "Free" : "BYO key"}
@@ -95,12 +90,8 @@ export function SettingsModal({ onClose, onOpenModels }: Props) {
             type="password"
             value={secret}
             onChange={(event) => setSecret(event.target.value)}
-            placeholder={
-              options.find((o) => o.id === providerId)?.keyLabel ?? "No key required"
-            }
-            disabled={
-              !options.find((o) => o.id === providerId)?.keyLabel
-            }
+            placeholder={options.find((o) => o.id === providerId)?.keyLabel ?? "No key required"}
+            disabled={!options.find((o) => o.id === providerId)?.keyLabel}
           />
         </label>
 

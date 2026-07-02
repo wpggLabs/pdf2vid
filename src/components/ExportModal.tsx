@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
-import { X, Export, Gear, Warning } from "@phosphor-icons/react";
+import { Export, Gear, Warning, X } from "@phosphor-icons/react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import type { Project } from "../types";
-import { dependencyStatus } from "../backend";
+import { useEffect, useState } from "react";
 import type { DependencyStatus, InstallHint } from "../backend";
+import { dependencyStatus } from "../backend";
+import type { Project } from "../types";
 
 interface Props {
   onClose: () => void;
@@ -21,7 +21,9 @@ export function ExportModal({ onClose, onStart, onOpenSettings, project }: Props
   const selectedCount = project.scenes.filter((scene) => scene.selected).length;
 
   useEffect(() => {
-    dependencyStatus().then(setDeps).catch(() => undefined);
+    dependencyStatus()
+      .then(setDeps)
+      .catch(() => undefined);
   }, []);
 
   const blockingIssues: string[] = [];
@@ -52,8 +54,10 @@ export function ExportModal({ onClose, onStart, onOpenSettings, project }: Props
     }
   }
 
-  const hasCloudKey = (provider: string) => provider === "edge" || provider === "marian" || provider === "piper" || provider === "pages";
-  const cloudWarning = !hasCloudKey(project.translationProvider) || !hasCloudKey(project.voiceProvider);
+  const hasCloudKey = (provider: string) =>
+    provider === "edge" || provider === "marian" || provider === "piper" || provider === "pages";
+  const cloudWarning =
+    !hasCloudKey(project.translationProvider) || !hasCloudKey(project.voiceProvider);
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>

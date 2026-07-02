@@ -1,29 +1,39 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowsOut, Check, Export, FilePdf, Gear, List, Pause,
-  Play, Plus, SkipBack, SkipForward, SpeakerHigh, Trash, Waveform, Warning,
+  ArrowsOut,
+  Check,
+  Export,
+  FilePdf,
+  Gear,
+  List,
+  Pause,
+  Play,
+  Plus,
+  SkipBack,
+  SkipForward,
+  SpeakerHigh,
+  Trash,
+  Warning,
+  Waveform,
 } from "@phosphor-icons/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import type { ProviderList } from "./api";
+import { startExport as backendExport, getProviderList, getSystemStatus } from "./backend";
 import { ExportModal } from "./components/ExportModal";
-import { SettingsModal } from "./components/SettingsModal";
 import { ModelsModal } from "./components/ModelsModal";
+import { PreviewModal } from "./components/PreviewModal";
 import { ProgressModal } from "./components/ProgressModal";
 import { ProviderField } from "./components/ProviderField";
-import { PreviewModal } from "./components/PreviewModal";
 import { ProviderHealth } from "./components/ProviderHealth";
-import {
-  getProviderList, getSystemStatus, startExport as backendExport,
-} from "./backend";
+import { SettingsModal } from "./components/SettingsModal";
 import { usePreviewVoice } from "./hooks/usePreviewVoice";
 import { useTimelinePlayback } from "./hooks/useTimelinePlayback";
 import { useTranslationModelPrompt } from "./hooks/useTranslationModelPrompt";
 import { voiceOptionsFor } from "./lib/voiceOptions";
 import { useProjectState } from "./state/useProjectState";
 import { useWorkspaceUi } from "./state/useWorkspaceUi";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { ProviderOption } from "./types";
-import type { SystemStatus } from "./types";
-import type { ProviderList } from "./api";
+import type { ProviderOption, SystemStatus } from "./types";
 
 function seconds(value: number) {
   const minutes = Math.floor(value / 60);
@@ -45,6 +55,7 @@ function App() {
     importProgress,
     status,
     setStatus,
+    importSummary,
     importPdf,
     importPdfFromPath,
     updateScene,
@@ -53,7 +64,10 @@ function App() {
   const ui = useWorkspaceUi();
   const [providers, setProviders] = useState<ProviderList | null>(null);
   const [system, setSystem] = useState<SystemStatus>({
-    ffmpeg: false, ffprobe: false, platform: "Browser preview", ffmpegSidecarReady: false,
+    ffmpeg: false,
+    ffprobe: false,
+    platform: "Browser preview",
+    ffmpegSidecarReady: false,
   });
   const [progressJobId, setProgressJobId] = useState<string | null>(null);
 
@@ -93,10 +107,7 @@ function App() {
     let mounted = true;
     (async () => {
       try {
-        const [list, status] = await Promise.all([
-          getProviderList(),
-          getSystemStatus(),
-        ]);
+        const [list, status] = await Promise.all([getProviderList(), getSystemStatus()]);
         if (!mounted) return;
         setProviders(list);
         setSystem(status);
@@ -123,9 +134,7 @@ function App() {
         .then((s) => {
           setSystem(s);
           if (s.ffmpeg || s.ffmpegSidecarReady) {
-            setStatus((prev) =>
-              prev.includes("FFmpeg") ? "Ready" : prev,
-            );
+            setStatus((prev) => (prev.includes("FFmpeg") ? "Ready" : prev));
           }
         })
         .catch(() => undefined);
@@ -155,17 +164,18 @@ function App() {
       const paths = [complete.youtubePath, complete.tiktokPath]
         .filter((p): p is string => Boolean(p))
         .join(", ");
-      setStatus(`Export complete · ${paths || "saved"}`);
+      const fallbackNote = complete.renderFallbackUsed ? " · captions skipped (no font)" : "";
+      const warningCount = (complete.warnings ?? []).filter((w) => w.severity !== "info").length;
+      const warningNote =
+        warningCount > 0 ? ` · ${warningCount} warning${warningCount === 1 ? "" : "s"}` : "";
+      setStatus(`Export complete · ${paths || "saved"}${fallbackNote}${warningNote}`);
     } catch (error) {
       setStatus(`Export failed: ${error}`);
     }
   }
 
   // Skip back / forward = previous / next selected scene
-  const selectedScenes = useMemo(
-    () => project.scenes.filter((s) => s.selected),
-    [project.scenes],
-  );
+  const selectedScenes = useMemo(() => project.scenes.filter((s) => s.selected), [project.scenes]);
   const selectedIndex = selectedScenes.findIndex((s) => s.id === activeId);
 
   const skipBack = useCallback(() => {
@@ -198,34 +208,40 @@ function App() {
   const translationProvider = providers
     ? providerById(providers.translation, project.translationProvider)
     : null;
-  const voiceProvider = providers
-    ? providerById(providers.voice, project.voiceProvider)
-    : null;
+  const voiceProvider = providers ? providerById(providers.voice, project.voiceProvider) : null;
 
   const totalDuration = duration;
 
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand"><span>pdf2</span><strong>vid</strong></div>
+        <div className="brand">
+          <span>pdf2</span>
+          <strong>vid</strong>
+        </div>
         <div className="project-title">
-          <span>Projects</span><b>/</b><strong>{project.name}</strong>
+          <span>Projects</span>
+          <b>/</b>
+          <strong>{project.name}</strong>
         </div>
         <nav aria-label="Workspace">
           <button
             className={ui.workspaceTab === "scenes" ? "nav-active" : ""}
             onClick={() => ui.setWorkspaceTab("scenes")}
           >
-            <List size={18} />Scenes
+            <List size={18} />
+            Scenes
           </button>
           <button
             className={ui.workspaceTab === "preview" ? "nav-active" : ""}
             onClick={ui.handlePreviewTab}
           >
-            <Play size={18} />Preview
+            <Play size={18} />
+            Preview
           </button>
           <button onClick={ui.openExport}>
-            <Export size={18} />Export
+            <Export size={18} />
+            Export
           </button>
         </nav>
         <button
@@ -263,17 +279,43 @@ function App() {
             }}
           />
           <button className="import-button" onClick={pickAndImportPdf}>
-            <FilePdf size={20} />Import PDF
+            <FilePdf size={20} />
+            Import PDF
           </button>
           {importProgress && (
             <div className="import-progress">
-              <span>Reading page {importProgress.page} of {importProgress.total}</span>
+              <span>
+                Reading page {importProgress.page} of {importProgress.total}
+              </span>
               <div className="import-progress-bar">
                 <div
                   className="import-progress-bar-fill"
                   style={{ width: `${(importProgress.page / importProgress.total) * 100}%` }}
                 />
               </div>
+            </div>
+          )}
+          {importSummary.status && !importProgress && (
+            <div className="import-summary" data-testid="import-summary">
+              <strong>
+                {importSummary.imported} page{importSummary.imported === 1 ? "" : "s"} imported
+              </strong>
+              {importSummary.skipped.length > 0 && (
+                <span>
+                  {importSummary.skipped.length} skipped (no text):{" "}
+                  {importSummary.skipped.slice(0, 3).join(", ")}
+                  {importSummary.skipped.length > 3 &&
+                    `, +${importSummary.skipped.length - 3} more`}
+                </span>
+              )}
+              {importSummary.needsOcr && (
+                <span className="import-summary-warn">OCR required — no selectable text.</span>
+              )}
+              {importSummary.translationNeeded && importSummary.imported > 0 && (
+                <span className="import-summary-hint">
+                  Review translation provider in the inspector.
+                </span>
+              )}
             </div>
           )}
           <div className="scene-label">
@@ -349,7 +391,11 @@ function App() {
               <button onClick={skipBack} aria-label="Previous scene">
                 <SkipBack weight="fill" />
               </button>
-              <button className="play" onClick={togglePlay} aria-label={playback.playing ? "Pause" : "Play"}>
+              <button
+                className="play"
+                onClick={togglePlay}
+                aria-label={playback.playing ? "Pause" : "Play"}
+              >
                 {playback.playing ? <Pause weight="fill" /> : <Play weight="fill" />}
               </button>
               <button onClick={skipForward} aria-label="Next scene">
@@ -417,20 +463,22 @@ function App() {
           ) : (
             <div className="subtitles-view">
               <div className="subtitle-list">
-                {project.scenes.filter((s) => s.selected).map((scene, i) => (
-                  <article key={scene.id} className="subtitle-row">
-                    <span className="subtitle-index">{i + 1}</span>
-                    <span className="subtitle-time">
-                      {seconds(
-                        project.scenes
-                          .filter((s) => s.selected)
-                          .slice(0, i)
-                          .reduce((sum, s) => sum + s.duration, 0),
-                      )}
-                    </span>
-                    <p>{scene.script}</p>
-                  </article>
-                ))}
+                {project.scenes
+                  .filter((s) => s.selected)
+                  .map((scene, i) => (
+                    <article key={scene.id} className="subtitle-row">
+                      <span className="subtitle-index">{i + 1}</span>
+                      <span className="subtitle-time">
+                        {seconds(
+                          project.scenes
+                            .filter((s) => s.selected)
+                            .slice(0, i)
+                            .reduce((sum, s) => sum + s.duration, 0),
+                        )}
+                      </span>
+                      <p>{scene.script}</p>
+                    </article>
+                  ))}
                 {project.scenes.filter((s) => s.selected).length === 0 && (
                   <p className="subtitle-empty">Select scenes to populate subtitles.</p>
                 )}
@@ -452,7 +500,8 @@ function App() {
               }
             />
             <button className="delete" onClick={() => removeScene(active.id)}>
-              <Trash size={16} />Delete scene
+              <Trash size={16} />
+              Delete scene
             </button>
           </div>
         </section>
@@ -575,9 +624,9 @@ function App() {
                   <div>
                     <strong>MarianMT translation not yet implemented</strong>
                     <span>
-                      Picking a non-English output with MarianMT will keep the source
-                      script and show a warning after export. Use OpenAI or Google
-                      Cloud for actual translation.
+                      Picking a non-English output with MarianMT will keep the source script and
+                      show a warning after export. Use OpenAI or Google Cloud for actual
+                      translation.
                     </span>
                   </div>
                 </div>
@@ -611,9 +660,7 @@ function App() {
                 <input
                   type="checkbox"
                   checked={active.selected}
-                  onChange={(event) =>
-                    updateScene(active.id, { selected: event.target.checked })
-                  }
+                  onChange={(event) => updateScene(active.id, { selected: event.target.checked })}
                 />
                 <div>
                   <strong>Include this scene</strong>
@@ -652,14 +699,17 @@ function App() {
               </div>
             </label>
             <button className="export-primary" onClick={ui.openExport}>
-              <Export size={18} />Export video
+              <Export size={18} />
+              Export video
             </button>
           </div>
         </aside>
       </section>
 
       <footer className="statusbar">
-        <span className={`status-dot ${system.ffmpeg || system.ffmpegSidecarReady ? "ready" : "warn"}`} />
+        <span
+          className={`status-dot ${system.ffmpeg || system.ffmpegSidecarReady ? "ready" : "warn"}`}
+        />
         <span>{status}</span>
         {modelPrompt.neededModelId && (
           <button
@@ -671,7 +721,8 @@ function App() {
           </button>
         )}
         <span className="system-status">
-          {system.platform} · FFmpeg {system.ffmpeg || system.ffmpegSidecarReady ? "ready" : "not found"}
+          {system.platform} · FFmpeg{" "}
+          {system.ffmpeg || system.ffmpegSidecarReady ? "ready" : "not found"}
         </span>
       </footer>
 

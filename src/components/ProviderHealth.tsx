@@ -1,7 +1,7 @@
+import { Check, Warning, X } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
-import { Check, X, Warning } from "@phosphor-icons/react";
-import { dependencyStatus } from "../backend";
 import type { DependencyStatus, InstallHint } from "../backend";
+import { dependencyStatus } from "../backend";
 
 interface Props {
   onOpenModels?: () => void;
@@ -11,7 +11,9 @@ export function ProviderHealth({ onOpenModels }: Props) {
   const [status, setStatus] = useState<DependencyStatus | null>(null);
 
   useEffect(() => {
-    dependencyStatus().then(setStatus).catch(() => undefined);
+    dependencyStatus()
+      .then(setStatus)
+      .catch(() => undefined);
   }, []);
 
   if (!status) {
@@ -37,8 +39,8 @@ export function ProviderHealth({ onOpenModels }: Props) {
       detail: status.edgeTtsVersion
         ? `installed (${status.edgeTtsVersion})`
         : status.pythonPath
-        ? `Python ${status.pythonPath} found, but edge-tts is not installed`
-        : "Python not found",
+          ? `Python ${status.pythonPath} found, but edge-tts is not installed`
+          : "Python not found",
       hint: status.installHints.find((h: InstallHint) => h.tool === "python"),
     },
     {
@@ -81,8 +83,8 @@ export function ProviderHealth({ onOpenModels }: Props) {
         <div className="provider-health-warning">
           <Warning size={16} weight="fill" />
           <span>
-            FFmpeg is not installed. Install it to enable export. Until then the
-            app can import and preview, but cannot produce a video file.
+            FFmpeg is not installed. Install it to enable export. Until then the app can import and
+            preview, but cannot produce a video file.
           </span>
         </div>
       )}
@@ -90,9 +92,8 @@ export function ProviderHealth({ onOpenModels }: Props) {
         <div className="provider-health-warning">
           <Warning size={16} weight="fill" />
           <span>
-            edge-tts is not installed. Voice synthesis will fall back to
-            StreamElements / Google TTS. Install Python + edge-tts for the
-            best free voice quality.
+            edge-tts is not installed. Voice synthesis will fall back to StreamElements / Google
+            TTS. Install Python + edge-tts for the best free voice quality.
           </span>
         </div>
       )}

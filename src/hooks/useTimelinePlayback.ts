@@ -40,8 +40,7 @@ export function useTimelinePlayback(scenes: Scene[]) {
     const selected = selectedRef.current;
     if (selected.length === 0) return;
     setState((prev) => {
-      const startIdx =
-        prev.currentSceneIndex >= selected.length ? 0 : prev.currentSceneIndex;
+      const startIdx = prev.currentSceneIndex >= selected.length ? 0 : prev.currentSceneIndex;
       return { playing: true, currentSceneIndex: startIdx, elapsedInScene: 0 };
     });
   }, []);
@@ -98,10 +97,7 @@ export function useTimelinePlayback(scenes: Scene[]) {
   }, [state.playing]);
 
   const selectedScenes = useMemo(() => scenes.filter((s) => s.selected), [scenes]);
-  const totalDuration = selectedScenes.reduce(
-    (sum, scene) => sum + scene.duration,
-    0,
-  );
+  const totalDuration = selectedScenes.reduce((sum, scene) => sum + scene.duration, 0);
   const currentElapsed =
     selectedScenes
       .slice(0, state.currentSceneIndex)

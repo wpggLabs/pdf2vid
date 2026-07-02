@@ -165,10 +165,61 @@ npm run dev
 Validation:
 
 ```bash
-npm run test                 # Vitest (frontend)
-npm run build                # TypeScript + Vite production build
+npm test                                                              # Vitest (frontend, fast)
+npm run build                                                         # TypeScript + Vite production build
 cargo test --manifest-path src-tauri/Cargo.toml --lib
+cargo test --manifest-path src-tauri/Cargo.toml --test smoke_export -- --ignored --nocapture
+cargo test --manifest-path src-tauri/Cargo.toml --test pdf_pipeline -- --ignored --nocapture
+cargo test --manifest-path src-tauri/Cargo.toml --test audio_pipeline -- --ignored --nocapture
 npm run tauri build -- --debug
+```
+
+`cargo test --test smoke_export -- --ignored` is the automated FFmpeg
+end-to-end check: it generates placeholder PNGs + silent audio with
+`ffmpeg -f lavfi`, runs the same filter graph production uses for
+both 1920×1080 (YouTube) and 1080×1920 (TikTok), and probes the outputs
+with `ffprobe`. The test asserts both files exist, both have a video
+and audio stream, the resolutions match, and the duration is bounded
+and finite.
+
+`cargo test --test pdf_pipeline -- --ignored` is the real-PDF pipeline
+proof: it parses `fixtures/clean-text-3page.pdf`,
+`fixtures/mixed-blank-page.pdf`, `fixtures/non-english-3page.pdf`, and
+`fixtures/scanned-or-image-page.pdf` with `pdf-extract`, builds a
+`Project`, renders through the production filter graph, and verifies
+the output with `ffprobe`. Requires `ffmpeg` + `ffprobe` on PATH and at
+least one system font reachable from `pdf2vid_lib::font::resolve_font`.
+
+`cargo test --test audio_pipeline -- --ignored` exercises the real
+`edgetts::synthesize` path. When `python -m edge_tts` is available the
+test produces a real MP3 and verifies bounded finite duration. When
+edge-tts is unavailable the test prints a skip reason and exits
+cleanly — no fake success.
+
+### Real PDF fixtures
+
+`fixtures/` contains four deterministic PDFs the integration tests
+parse:
+
+| Fixture | Pages | Text? | Used by |
+|---|---|---|---|
+| `clean-text-3page.pdf` | 3 | yes (English) | happy-path import + render |
+| `mixed-blank-page.pdf` | 4 | yes on 1, 3, 4; page 2 is blank | skipped-page warning |
+| `non-english-3page.pdf` | 3 | yes (Spanish) | non-Latin script import |
+| `scanned-or-image-page.pdf` | 4 | no (image only) | OCR-required error path |
+
+Regenerate with `python scripts/gen_pdf_fixtures.py` (uses `fpdf2` +
+`pypdfium2`). The script verifies each fixture immediately after
+generation.
+
+### Manual QA outputs
+
+`docs/manual_qa/` contains real MP4 exports and a typed
+`qa-report.json`. Regenerate with:
+
+```bash
+cd src-tauri
+cargo run --example qa_export
 ```
 
 ## Contributing

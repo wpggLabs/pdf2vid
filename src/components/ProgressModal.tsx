@@ -1,7 +1,13 @@
-import { X, Warning, CheckCircle } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
-import { cancelExport, getSystemStatus, onExportComplete, onExportError, onExportProgress } from "../backend";
-import type { ExportProgress, TranslationWarning } from "../api";
+import { CheckCircle, Warning, X } from "@phosphor-icons/react";
+import { useEffect, useMemo, useState } from "react";
+import type { ExportProgress, ProjectWarning, TranslationWarning, WarningCode } from "../api";
+import {
+  cancelExport,
+  getSystemStatus,
+  onExportComplete,
+  onExportError,
+  onExportProgress,
+} from "../backend";
 
 interface DoneState {
   youtubePath: string | null;
@@ -9,6 +15,8 @@ interface DoneState {
   translationWarnings: TranslationWarning[];
   skippedPages: number[];
   untranslatedCount: number;
+  warnings: ProjectWarning[];
+  renderFallbackUsed: boolean;
 }
 
 interface Props {
@@ -28,6 +36,10 @@ export function ProgressModal({ jobId, onClose }: Props) {
         setSystemNote(
           "FFmpeg is not detected. Install FFmpeg or place the bundled sidecar next to the app for rendering to work.",
         );
+      } else if (s.fontAvailable === false) {
+        setSystemNote(
+          "No drawtext font was found. Exports will run without on-screen narration until a font is installed.",
+        );
       }
     });
   }, []);
@@ -37,20 +49,25 @@ export function ProgressModal({ jobId, onClose }: Props) {
     (async () => {
       unlisteners.push(await onExportProgress((p) => p.jobId === jobId && setProgress(p)));
       unlisteners.push(
-        await onExportComplete((c) =>
-          c.jobId === jobId &&
-          setDone({
-            youtubePath: c.youtubePath,
-            tiktokPath: c.tiktokPath,
-            translationWarnings: c.translationWarnings ?? [],
-            skippedPages: c.skippedPages ?? [],
-            untranslatedCount: c.untranslatedCount ?? 0,
-          }),
+        await onExportComplete(
+          (c) =>
+            c.jobId === jobId &&
+            setDone({
+              youtubePath: c.youtubePath,
+              tiktokPath: c.tiktokPath,
+              translationWarnings: c.translationWarnings ?? [],
+              skippedPages: c.skippedPages ?? [],
+              untranslatedCount: c.untranslatedCount ?? 0,
+              warnings: c.warnings ?? [],
+              renderFallbackUsed: c.renderFallbackUsed ?? false,
+            }),
         ),
       );
       unlisteners.push(await onExportError((e) => e.jobId === jobId && setError(e.message)));
     })();
-    return () => unlisteners.forEach((fn) => fn());
+    return () => {
+      for (const fn of unlisteners) fn();
+    };
   }, [jobId]);
 
   async function handleCancel() {
@@ -61,9 +78,15 @@ export function ProgressModal({ jobId, onClose }: Props) {
     }
   }
 
+  // Group the typed warnings by code so the UI can render each kind
+  // with its own block. We keep this on the component (not a hook)
+  // because the order and grouping is presentation-specific.
+  const groupedWarnings = useMemo(() => groupWarnings(done?.warnings ?? []), [done?.warnings]);
+
   const totalWarnings =
     (done?.translationWarnings.length ?? 0) +
-    (done?.skippedPages.length ?? 0);
+    (done?.skippedPages.length ?? 0) +
+    (done?.warnings.filter((w) => w.severity !== "info").length ?? 0);
   const reviewCount = done?.untranslatedCount ?? 0;
 
   return (
@@ -78,9 +101,7 @@ export function ProgressModal({ jobId, onClose }: Props) {
           ) : null}
         </header>
 
-        {systemNote && !progress && (
-          <p className="modal-warning">{systemNote}</p>
-        )}
+        {systemNote && !progress && <p className="modal-warning">{systemNote}</p>}
 
         {!done && !error && progress && (
           <div className="progress-modal">
@@ -94,10 +115,7 @@ export function ProgressModal({ jobId, onClose }: Props) {
               </span>
             </div>
             <div className="progress-modal-bar">
-              <div
-                className="progress-modal-bar-fill"
-                style={{ width: `${progress.percent}%` }}
-              />
+              <div className="progress-modal-bar-fill" style={{ width: `${progress.percent}%` }} />
             </div>
             <span className="progress-modal-percent">{progress.percent}%</span>
             <button className="export-secondary" onClick={handleCancel}>
@@ -131,12 +149,41 @@ export function ProgressModal({ jobId, onClose }: Props) {
               </p>
             )}
 
+            {done.renderFallbackUsed && (
+              <div className="progress-warning-block">
+                <Warning size={16} weight="fill" />
+                <div>
+                  <strong>Render fell back to text-less drawtext</strong>
+                  <span>
+                    No font was available, so the exported videos do not display on-screen
+                    narration. Install a TrueType font and re-export to restore captions.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {groupedWarnings.missingFont.length > 0 && (
+              <div className="progress-warning-block">
+                <Warning size={16} weight="fill" />
+                <div>
+                  <strong>Missing drawtext font</strong>
+                  <span>{groupedWarnings.missingFont[0].message}</span>
+                  {groupedWarnings.missingFont[0].suggestedFix && (
+                    <code className="progress-warning-fix">
+                      {groupedWarnings.missingFont[0].suggestedFix}
+                    </code>
+                  )}
+                </div>
+              </div>
+            )}
+
             {done.skippedPages.length > 0 && (
               <div className="progress-warning-block">
                 <Warning size={16} weight="fill" />
                 <div>
                   <strong>
-                    {done.skippedPages.length} page{done.skippedPages.length === 1 ? "" : "s"} skipped
+                    {done.skippedPages.length} page{done.skippedPages.length === 1 ? "" : "s"}{" "}
+                    skipped
                   </strong>
                   <span>
                     Imported PDF had no selectable text on these pages:{" "}
@@ -153,8 +200,8 @@ export function ProgressModal({ jobId, onClose }: Props) {
                   <Warning size={16} />
                   <strong>
                     {done.translationWarnings.length} scene
-                    {done.translationWarnings.length === 1 ? "" : "s"} used the source
-                    script because translation wasn't available.
+                    {done.translationWarnings.length === 1 ? "" : "s"} used the source script
+                    because translation wasn't available.
                   </strong>
                 </p>
                 <ul>
@@ -168,9 +215,28 @@ export function ProgressModal({ jobId, onClose }: Props) {
                   )}
                 </ul>
                 <p className="progress-warning-hint">
-                  Switch translation provider in the inspector to OpenAI or Google
-                  Cloud for actual translation.
+                  Switch translation provider in the inspector to OpenAI or Google Cloud for actual
+                  translation.
                 </p>
+              </div>
+            )}
+
+            {groupedWarnings.unsupportedProvider.length > 0 && (
+              <div className="progress-warnings">
+                <p>
+                  <Warning size={16} />
+                  <strong>Unsupported provider selected</strong>
+                </p>
+                <ul>
+                  {groupedWarnings.unsupportedProvider.slice(0, 5).map((w, i) => (
+                    <li key={i}>{w.message}</li>
+                  ))}
+                </ul>
+                {groupedWarnings.unsupportedProvider[0]?.suggestedFix && (
+                  <p className="progress-warning-hint">
+                    {groupedWarnings.unsupportedProvider[0].suggestedFix}
+                  </p>
+                )}
               </div>
             )}
 
@@ -191,4 +257,51 @@ export function ProgressModal({ jobId, onClose }: Props) {
       </section>
     </div>
   );
+}
+
+interface GroupedWarnings {
+  missingFont: ProjectWarning[];
+  renderFallback: ProjectWarning[];
+  unsupportedProvider: ProjectWarning[];
+  voiceSynthesisFailed: ProjectWarning[];
+  untranslatedScene: ProjectWarning[];
+  missingDependency: ProjectWarning[];
+  other: ProjectWarning[];
+}
+
+function groupWarnings(warnings: ProjectWarning[]): GroupedWarnings {
+  const groups: GroupedWarnings = {
+    missingFont: [],
+    renderFallback: [],
+    unsupportedProvider: [],
+    voiceSynthesisFailed: [],
+    untranslatedScene: [],
+    missingDependency: [],
+    other: [],
+  };
+  for (const w of warnings) {
+    const bucket = bucketFor(w.code);
+    if (bucket) groups[bucket].push(w);
+    else groups.other.push(w);
+  }
+  return groups;
+}
+
+function bucketFor(code: WarningCode): keyof GroupedWarnings | null {
+  switch (code) {
+    case "missingFont":
+      return "missingFont";
+    case "renderFallback":
+      return "renderFallback";
+    case "unsupportedProvider":
+      return "unsupportedProvider";
+    case "voiceSynthesisFailed":
+      return "voiceSynthesisFailed";
+    case "untranslatedScene":
+      return "untranslatedScene";
+    case "missingDependency":
+      return "missingDependency";
+    default:
+      return null;
+  }
 }

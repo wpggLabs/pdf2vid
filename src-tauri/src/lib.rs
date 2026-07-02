@@ -1,12 +1,13 @@
-pub mod types;
-pub mod state;
-pub mod providers;
-pub mod models;
-pub mod edgetts;
 pub mod cloud;
-pub mod ffmpeg;
-pub mod render;
 pub mod commands;
+pub mod edgetts;
+pub mod ffmpeg;
+pub mod font;
+pub mod models;
+pub mod providers;
+pub mod render;
+pub mod state;
+pub mod types;
 
 use crate::state::AppState;
 

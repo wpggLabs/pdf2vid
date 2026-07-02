@@ -30,13 +30,10 @@ export function useTranslationModelPrompt(
           setNeededModelId(modelId);
           if (lastTriggered.current !== modelId) {
             lastTriggered.current = modelId;
-            onStatus(
-              `MarianMT model for ${language} not installed. ~300 MB download required.`,
-              {
-                label: "Download",
-                run: () => triggerDownload(modelId),
-              },
-            );
+            onStatus(`MarianMT model for ${language} not installed. ~300 MB download required.`, {
+              label: "Download",
+              run: () => triggerDownload(modelId),
+            });
           }
         } else {
           setNeededModelId(null);
@@ -68,15 +65,15 @@ export function useTranslationModelPrompt(
 
 function pairFor(language: string): string | null {
   const map: Record<string, string> = {
-    "Spanish": "en-es",
-    "French": "en-fr",
-    "German": "en-de",
-    "Portuguese": "en-pt",
-    "Hindi": "en-hi",
-    "Japanese": "en-jap",
-    "Korean": "en-ko",
+    Spanish: "en-es",
+    French: "en-fr",
+    German: "en-de",
+    Portuguese: "en-pt",
+    Hindi: "en-hi",
+    Japanese: "en-jap",
+    Korean: "en-ko",
     "Chinese (Simplified)": "en-zh",
-    "Arabic": "en-ar",
+    Arabic: "en-ar",
   };
   return map[language] ?? null;
 }

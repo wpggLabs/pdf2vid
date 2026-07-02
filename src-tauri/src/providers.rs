@@ -196,7 +196,10 @@ mod tests {
 
     #[test]
     fn voice_provider_for_chinese_is_xiaoxiao() {
-        assert_eq!(edge_voice_for_language("Chinese (Simplified)"), "zh-CN-XiaoxiaoNeural");
+        assert_eq!(
+            edge_voice_for_language("Chinese (Simplified)"),
+            "zh-CN-XiaoxiaoNeural"
+        );
     }
 
     #[test]
@@ -223,7 +226,18 @@ mod tests {
     #[test]
     fn languages_include_advertised_set() {
         let list = provider_list();
-        for lang in ["English (US)", "Spanish", "French", "German", "Hindi", "Japanese", "Korean", "Chinese (Simplified)", "Arabic", "Portuguese"] {
+        for lang in [
+            "English (US)",
+            "Spanish",
+            "French",
+            "German",
+            "Hindi",
+            "Japanese",
+            "Korean",
+            "Chinese (Simplified)",
+            "Arabic",
+            "Portuguese",
+        ] {
             assert!(list.languages.contains(&lang.to_string()), "missing {lang}");
         }
     }

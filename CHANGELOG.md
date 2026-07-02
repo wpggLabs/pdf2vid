@@ -4,6 +4,52 @@ All notable changes to pdf2vid are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Real PDF fixture set under `fixtures/`:
+  - `clean-text-3page.pdf` (3 pages of selectable English text)
+  - `mixed-blank-page.pdf` (4 pages, page 2 blank)
+  - `non-english-3page.pdf` (3 pages of Spanish text)
+  - `scanned-or-image-page.pdf` (4 image-only pages; OCR required)
+- `scripts/gen_pdf_fixtures.py` deterministic generator using `fpdf2`
+  and `pypdfium2`. Verifies every fixture immediately after writing.
+- Rust integration tests `tests/pdf_pipeline.rs` (11 ignored tests) —
+  parse the real fixtures, build a `Project`, render through the
+  production filter graph, and verify with `ffprobe`.
+- Rust integration tests `tests/audio_pipeline.rs` (2 ignored tests) —
+  exercise the real `edgetts::synthesize` path. Skips cleanly when
+  edge-tts is unavailable; no fake success.
+- `examples/qa_export.rs` CLI that generates real MP4 outputs into
+  `docs/manual_qa/` and writes a typed `qa-report.json`.
+- Frontend `ImportSummary` (imported, skipped, needsOcr,
+  translationNeeded, warnings, status). Surfaced in the inspector
+  under the Import button.
+- `pdf.test.ts` Vitest fixture-presence smoke.
+- `pdf-extract = "0.10"` as a `[dev-dependencies]` entry only.
+
+### Changed
+
+- `pdf.ts` split into `extractPageText` + `renderPageThumbnail` so the
+  import surface is testable. Thumbnail failures degrade to empty
+  strings instead of failing the import.
+- The legacy truncated `sample-3page.pdf` (rejected by `ffprobe`) was
+  regenerated from the same template as `clean-text-3page.pdf`.
+- `useProjectState` exposes a structured `importSummary` alongside
+  the existing flat status string.
+- `App.tsx` renders the import summary in the inspector.
+
+### Strict scope notes
+
+- We do NOT yet claim OCR support. The image-only fixture fails the
+  import with a typed error.
+- We do NOT yet claim translation. The Spanish fixture imports as
+  Spanish; the render pipeline records an `UntranslatedScene`
+  warning per scene.
+- We do NOT yet claim "any PDF". Scanned PDFs, encrypted PDFs, and
+  password-protected PDFs are all out of scope until Phase 3.
+
 ## [0.1.0] — 2026-06-19
 
 ### Added

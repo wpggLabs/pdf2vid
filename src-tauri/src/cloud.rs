@@ -89,7 +89,12 @@ pub async fn google_translate(
 
     let resp = client
         .post("https://translation.googleapis.com/language/translate/v2")
-        .query(&[("key", api_key), ("q", &req.text), ("target", lang_code), ("format", "text")])
+        .query(&[
+            ("key", api_key),
+            ("q", &req.text),
+            ("target", lang_code),
+            ("format", "text"),
+        ])
         .send()
         .await
         .map_err(|e| format!("Google request failed: {e}"))?;

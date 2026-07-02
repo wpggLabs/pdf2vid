@@ -18,7 +18,7 @@ first option in each list is the free default.
 
 | Provider | Tier | Cost | Network | Notes |
 |---|---|---|---|---|
-| **edge-tts** | Free default | Free | Per synthesis (Microsoft) | Microsoft Neural voices (`en-US-AriaNeural`, `en-US-JennyNeural`, etc). Implemented by shelling out to the `edge-tts` Python package (`pip install edge-tts`) — same approach Hermes agent uses. Highest-quality free voice. |
+| **edge-tts** | Free default | Free | Per synthesis (Microsoft) | Microsoft Neural voices (`en-US-AriaNeural`, `en-US-JennyNeural`, etc). Implemented by shelling out to the `edge-tts` Python package (`pip install edge-tts`). Highest-quality free voice. |
 | **Piper** | Free fallback | Free | Model download (one-time) | Offline ONNX voices after model download. Smaller, less expressive than edge-tts. |
 | **OpenAI TTS** | BYO key | Per-character (your account) | Per request | `tts-1` model, voices `alloy`/`shimmer`/`onyx` etc. |
 | **ElevenLabs** | BYO key | Per-character (your account) | Per request | Premium neural voices. Voice IDs configurable in Settings. |

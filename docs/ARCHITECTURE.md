@@ -1,7 +1,7 @@
 # Architecture
 
 This document describes the runtime architecture of pdf2vid so contributors
-and tooling (including AI assistants) can navigate the codebase.
+and tooling can navigate the codebase.
 
 ## High-Level Shape
 

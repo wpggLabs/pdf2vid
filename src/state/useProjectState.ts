@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadProject, saveProject } from "../backend";
-import { parsePdf, type PdfImportResult } from "../pdf";
+import { type PdfImportResult, parsePdf } from "../pdf";
 import type { Project, Scene } from "../types";
 
 const demoScenes: Scene[] = [
@@ -27,6 +27,23 @@ const defaultProject: Project = {
   outputTikTok: true,
 };
 
+export interface ImportSummary {
+  imported: number;
+  skipped: number[];
+  /** True when the PDF had no selectable text at all (OCR required). */
+  needsOcr: boolean;
+  /**
+   * True when the imported project still needs the user to pick a
+   * translation provider other than the default. We always surface
+   * this after import so the UI can show a translation hint.
+   */
+  translationNeeded: boolean;
+  /** Number of warnings associated with the import (== skipped.length). */
+  warnings: number;
+  /** Flat string for the status bar. */
+  status: string;
+}
+
 export interface ProjectState {
   project: Project;
   setProject: React.Dispatch<React.SetStateAction<Project>>;
@@ -36,6 +53,8 @@ export interface ProjectState {
   importProgress: { page: number; total: number } | null;
   status: string;
   setStatus: React.Dispatch<React.SetStateAction<string>>;
+  /** Structured import summary, refreshed after every PDF load. */
+  importSummary: ImportSummary;
   /** Persistently updated from project changes (debounced). */
   importPdf: (file: File) => Promise<void>;
   importPdfFromPath: (path: string) => Promise<void>;
@@ -52,8 +71,18 @@ export interface ProjectState {
 export function useProjectState(): ProjectState {
   const [project, setProject] = useState<Project>(defaultProject);
   const [activeId, setActiveId] = useState(project.scenes[0].id);
-  const [importProgress, setImportProgress] = useState<{ page: number; total: number } | null>(null);
+  const [importProgress, setImportProgress] = useState<{ page: number; total: number } | null>(
+    null,
+  );
   const [status, setStatus] = useState("Loading project…");
+  const [importSummary, setImportSummary] = useState<ImportSummary>({
+    imported: 0,
+    skipped: [],
+    needsOcr: false,
+    translationNeeded: false,
+    warnings: 0,
+    status: "",
+  });
   const saveTimer = useRef<number | null>(null);
   const importAbort = useRef<AbortController | null>(null);
 
@@ -102,11 +131,34 @@ export function useProjectState(): ProjectState {
     return `${imported} pages imported · ${skipped.length} skipped (no text): ${sample}${more}`;
   }
 
-  function applyImportResult(
-    name: string,
-    sourceName: string,
-    result: PdfImportResult,
-  ) {
+  /**
+   * Structured import summary surfaced in the inspector right after a
+   * PDF loads. We expose both a flat string (for the status bar) and
+   * a typed record (for components that want richer UI without
+   * parsing the string).
+   */
+  function buildImportSummary(result: PdfImportResult) {
+    const imported = result.scenes.length;
+    const skipped = result.skippedPages;
+    const needsOcr = imported === 0;
+    const translationNeeded =
+      imported > 0 &&
+      // The default project language is "English (US)" so non-English
+      // PDFs will require translation. We can't introspect the actual
+      // source language from the import result alone, but we can
+      // signal that the user should review the translation panel.
+      true;
+    return {
+      imported,
+      skipped,
+      needsOcr,
+      translationNeeded,
+      warnings: skipped.length > 0 ? skipped.length : 0,
+      status: formatImportStatus(imported, skipped),
+    };
+  }
+
+  function applyImportResult(name: string, sourceName: string, result: PdfImportResult) {
     setProject((current) => ({
       ...current,
       name,
@@ -115,7 +167,9 @@ export function useProjectState(): ProjectState {
       skippedPages: result.skippedPages,
     }));
     setActiveId(result.scenes[0].id);
-    setStatus(formatImportStatus(result.scenes.length, result.skippedPages));
+    const summary = buildImportSummary(result);
+    setImportSummary(summary);
+    setStatus(summary.status);
   }
 
   const importPdf = useCallback(async (file?: File) => {
@@ -155,7 +209,11 @@ export function useProjectState(): ProjectState {
         },
         importAbort.current.signal,
       );
-      const name = path.split(/[\\/]/).pop()?.replace(/\.pdf$/i, "") ?? "Untitled";
+      const name =
+        path
+          .split(/[\\/]/)
+          .pop()
+          ?.replace(/\.pdf$/i, "") ?? "Untitled";
       applyImportResult(name, path, result);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not read this PDF");
@@ -168,9 +226,7 @@ export function useProjectState(): ProjectState {
   const updateScene = useCallback((id: string, changes: Partial<Scene>) => {
     setProject((current) => ({
       ...current,
-      scenes: current.scenes.map((scene) =>
-        scene.id === id ? { ...scene, ...changes } : scene,
-      ),
+      scenes: current.scenes.map((scene) => (scene.id === id ? { ...scene, ...changes } : scene)),
     }));
   }, []);
 
@@ -196,6 +252,7 @@ export function useProjectState(): ProjectState {
     importProgress,
     status,
     setStatus,
+    importSummary,
     importPdf,
     importPdfFromPath,
     updateScene,

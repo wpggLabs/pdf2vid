@@ -12,6 +12,37 @@ export interface SystemStatus {
   ffprobe: boolean;
   platform: string;
   ffmpegSidecarReady: boolean;
+  /**
+   * True when a usable drawtext font was discovered. When false, exports
+   * fall back to text-less drawtext and the `warnings` array on
+   * `ExportComplete` carries a `renderFallback` warning.
+   */
+  fontAvailable?: boolean;
+  /** Path to the font that will be passed to FFmpeg, when one exists. */
+  fontPath?: string | null;
+}
+
+export type WarningCode =
+  | "skippedPage"
+  | "untranslatedScene"
+  | "missingFont"
+  | "renderFallback"
+  | "missingDependency"
+  | "unsupportedProvider"
+  | "voiceSynthesisFailed";
+
+export type WarningSeverity = "info" | "warning" | "error";
+
+export interface ProjectWarning {
+  code: WarningCode;
+  severity: WarningSeverity;
+  sceneId?: string | null;
+  page?: number | null;
+  message: string;
+  /** Short technical detail (e.g. an FFmpeg stderr line). */
+  detail?: string | null;
+  /** Actionable fix suggestion. */
+  suggestedFix?: string | null;
 }
 
 export interface ModelInfo {
@@ -57,6 +88,12 @@ export interface ExportComplete {
   translationWarnings: TranslationWarning[];
   skippedPages: number[];
   untranslatedCount: number;
+  /** Typed warnings for every category: skipped pages, missing fonts,
+   * render fallbacks, dependency issues, etc. */
+  warnings?: ProjectWarning[];
+  /** True when render fell back to text-less drawtext because no font
+   * was found on the host. */
+  renderFallbackUsed?: boolean;
 }
 
 export interface ExportError {
@@ -65,4 +102,4 @@ export interface ExportError {
   message: string;
 }
 
-export type { ProviderOption, ProviderKind, ProviderCategory };
+export type { ProviderCategory, ProviderKind, ProviderOption };

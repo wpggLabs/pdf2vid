@@ -1,7 +1,14 @@
+import { Check, Download, Stop, Trash, X } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
-import { X, Download, Trash, Check, Stop } from "@phosphor-icons/react";
-import { cancelModelDownload, deleteModel, downloadModel, getModels, onModelProgress, onModelComplete } from "../backend";
-import type { ModelInfo, ModelDownloadProgress } from "../api";
+import type { ModelDownloadProgress, ModelInfo } from "../api";
+import {
+  cancelModelDownload,
+  deleteModel,
+  downloadModel,
+  getModels,
+  onModelComplete,
+  onModelProgress,
+} from "../backend";
 
 interface Props {
   onClose: () => void;
@@ -14,13 +21,17 @@ export function ModelsModal({ onClose }: Props) {
   const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
-    getModels().then(setModels).catch((e) => setError(String(e)));
+    getModels()
+      .then(setModels)
+      .catch((e) => setError(String(e)));
     const unlistenProgress = onModelProgress((p) =>
       setProgress((prev) => ({ ...prev, [p.modelId]: p })),
     );
     const unlistenComplete = onModelComplete(({ modelId, success }) => {
       if (success) {
-        getModels().then(setModels).catch(() => undefined);
+        getModels()
+          .then(setModels)
+          .catch(() => undefined);
       }
       setProgress((prev) => {
         const next = { ...prev };
@@ -99,7 +110,9 @@ export function ModelsModal({ onClose }: Props) {
                 {prog ? (
                   <div className="model-progress">
                     <div className="model-progress-bar" style={{ width: `${prog.percent}%` }} />
-                    <span>{prog.percent}% · {formatSize(prog.downloaded)} / {formatSize(prog.total)}</span>
+                    <span>
+                      {prog.percent}% · {formatSize(prog.downloaded)} / {formatSize(prog.total)}
+                    </span>
                     <button
                       className="icon-button"
                       onClick={handleCancel}
@@ -110,7 +123,11 @@ export function ModelsModal({ onClose }: Props) {
                     </button>
                   </div>
                 ) : model.installed ? (
-                  <button className="icon-button" onClick={() => handleDelete(model)} aria-label="Remove">
+                  <button
+                    className="icon-button"
+                    onClick={() => handleDelete(model)}
+                    aria-label="Remove"
+                  >
                     <Check size={16} /> <Trash size={14} />
                   </button>
                 ) : (

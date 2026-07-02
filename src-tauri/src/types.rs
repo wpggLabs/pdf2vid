@@ -7,6 +7,14 @@ pub struct SystemStatus {
     pub ffprobe: bool,
     pub platform: String,
     pub ffmpeg_sidecar_ready: bool,
+    /// Whether a usable drawtext font was discovered on the host. `false`
+    /// means exports will fall back to text-less drawtext.
+    #[serde(default)]
+    pub font_available: bool,
+    /// Human-readable path of the font that will be used, when one exists.
+    /// `None` when no font was found.
+    #[serde(default)]
+    pub font_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +122,118 @@ pub struct ExportComplete {
     /// Total scenes that ended up untranslated (computed from translation_warnings).
     #[serde(default)]
     pub untranslated_count: u32,
+    /// Structured warnings for every category: skipped pages, missing
+    /// fonts, render fallbacks, dependency issues, etc. The frontend
+    /// renders these instead of relying on stringly-typed status text.
+    #[serde(default)]
+    pub warnings: Vec<ProjectWarning>,
+    /// `true` when render fell back to text-less drawtext because no font
+    /// was available. The frontend can call this out specifically.
+    #[serde(default)]
+    pub render_fallback_used: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum WarningCode {
+    /// PDF page had no selectable text and was dropped from the scene list.
+    SkippedPage,
+    /// Translation provider returned an error; source script used as fallback.
+    UntranslatedScene,
+    /// drawtext could not find a font; render proceeded with the fallback path.
+    MissingFont,
+    /// drawtext errored at render time and we fell back to text-less export.
+    RenderFallback,
+    /// FFmpeg, ffprobe, python, or edge-tts dependency is not installed.
+    MissingDependency,
+    /// The user picked a provider that exists in the registry but isn't wired up.
+    UnsupportedProvider,
+    /// Voice synthesis failed across all providers in the fallback chain.
+    VoiceSynthesisFailed,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum WarningSeverity {
+    Info,
+    Warning,
+    Error,
+}
+
+/// Structured project warning surfaced through `ExportComplete.warnings`.
+///
+/// We keep `TranslationWarning` around for the per-scene translation
+/// case (where scene_id + page are the natural keys), but every other
+/// category of issue flows through `ProjectWarning` so the frontend can
+/// render consistent, structured UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectWarning {
+    pub code: WarningCode,
+    pub severity: WarningSeverity,
+    /// Scene id, page number, or `None` for project-wide warnings.
+    pub scene_id: Option<String>,
+    pub page: Option<u32>,
+    pub message: String,
+    /// Optional short technical detail (e.g. an FFmpeg stderr line or
+    /// the actual provider error string). Frontend may hide by default.
+    pub detail: Option<String>,
+    /// Actionable suggestion, e.g. "Install FFmpeg via winget".
+    pub suggested_fix: Option<String>,
+}
+
+impl ProjectWarning {
+    pub fn info(code: WarningCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            severity: WarningSeverity::Info,
+            scene_id: None,
+            page: None,
+            message: message.into(),
+            detail: None,
+            suggested_fix: None,
+        }
+    }
+
+    pub fn warning(code: WarningCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            severity: WarningSeverity::Warning,
+            scene_id: None,
+            page: None,
+            message: message.into(),
+            detail: None,
+            suggested_fix: None,
+        }
+    }
+
+    pub fn error(code: WarningCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            severity: WarningSeverity::Error,
+            scene_id: None,
+            page: None,
+            message: message.into(),
+            detail: None,
+            suggested_fix: None,
+        }
+    }
+
+    pub fn with_scene(mut self, scene_id: impl Into<String>, page: u32) -> Self {
+        self.scene_id = Some(scene_id.into());
+        self.page = Some(page);
+        self
+    }
+
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    pub fn with_fix(mut self, fix: impl Into<String>) -> Self {
+        self.suggested_fix = Some(fix.into());
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
