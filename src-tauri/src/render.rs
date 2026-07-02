@@ -633,7 +633,6 @@ async fn compose_video(
             .translated_script
             .clone()
             .unwrap_or_else(|| scene.script.clone());
-        let safe_script = sanitize_ffmpeg_drawtext(&script);
         // Drive the scene length from the real narration audio so the video
         // matches the voice exactly (the stored `duration` is only a
         // word-count estimate). Fall back to it if probing fails.
@@ -641,11 +640,11 @@ async fn compose_video(
         let frames = ((seconds.max(1.0)) * 25.0).ceil() as u32;
 
         // Build the premium per-scene video chain (blurred graded
-        // background + sharp page + Ken Burns + vignette, with an
-        // optional drop-shadow caption). drawtext is included only when
-        // a font was discovered.
+        // background + sharp page + Ken Burns + vignette, with read-along
+        // captions that appear line-by-line in time with the narration).
+        // Captions are included only when a font was discovered.
         let caption = if drawtext_available {
-            Some(safe_script.as_str())
+            Some(script.as_str())
         } else {
             None
         };
@@ -836,13 +835,68 @@ fn build_scene_video_chain(
 [fg{i}]scale={w}:{h}:force_original_aspect_ratio=decrease[fgs{i}];\
 [bgb{i}][fgs{i}]overlay=(W-w)/2:(H-h)/2,zoompan=z='min(zoom+0.0008,1.15)':d={frames}:s={w}x{h}:fps=25,vignette=PI/5,setsar=1,fps=25,format=yuv420p"
     );
-    if let Some(safe_script) = caption {
-        chain.push_str(&format!(
-            ",drawtext=text='{safe_script}':fontcolor=white:fontsize=44:shadowcolor=black@0.8:shadowx=2:shadowy=2:box=1:boxcolor=black@0.45:boxborderw=18:x=(w-text_w)/2:y=h-90"
-        ));
+    if let Some(script) = caption {
+        // Read-along captions: the script is wrapped into short lines and
+        // each line is shown only during its slice of the scene, so the
+        // on-screen text follows the narration line by line. Timing is
+        // proportional to line length across the audio-derived frame count.
+        let lines = split_caption_lines(script, 42);
+        for (line, start_frame, end_frame) in timed_caption_lines(&lines, frames) {
+            let safe = sanitize_ffmpeg_drawtext(&line);
+            let start = start_frame as f64 / 25.0;
+            let end = end_frame as f64 / 25.0;
+            chain.push_str(&format!(
+                ",drawtext=text='{safe}':fontcolor=white:fontsize=44:shadowcolor=black@0.8:shadowx=2:shadowy=2:box=1:boxcolor=black@0.45:boxborderw=18:x=(w-text_w)/2:y=h-90:enable='between(t,{start:.2},{end:.2})'"
+            ));
+        }
     }
     chain.push_str(&format!("[v{i}];"));
     chain
+}
+
+/// Word-wrap caption text into short lines (roughly `max_chars` each) so
+/// captions display a line at a time rather than a wall of text.
+fn split_caption_lines(text: &str, max_chars: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if !current.is_empty() && current.chars().count() + 1 + word.chars().count() > max_chars {
+            lines.push(std::mem::take(&mut current));
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
+/// Distribute `frames` across the caption `lines` proportional to each
+/// line's length, producing `(line, start_frame, end_frame)` windows that
+/// are contiguous, gapless, and together cover the whole scene.
+fn timed_caption_lines(lines: &[String], frames: u32) -> Vec<(String, u32, u32)> {
+    if lines.is_empty() || frames == 0 {
+        return Vec::new();
+    }
+    let total: u64 = lines.iter().map(|l| l.chars().count().max(1) as u64).sum();
+    let mut out = Vec::with_capacity(lines.len());
+    let mut acc = 0u32;
+    let last = lines.len() - 1;
+    for (idx, line) in lines.iter().enumerate() {
+        let weight = line.chars().count().max(1) as u64;
+        let end = if idx == last {
+            frames
+        } else {
+            (acc as u64 + weight * frames as u64 / total).min(frames as u64) as u32
+        };
+        let end = end.max(acc + 1).min(frames);
+        out.push((line.clone(), acc, end));
+        acc = end;
+    }
+    out
 }
 
 fn sanitize(name: &str) -> String {
@@ -1088,13 +1142,55 @@ mod tests {
         assert!(chain.contains("zoompan"));
         assert!(chain.contains("d=100:"));
         assert!(chain.contains("vignette"));
-        // Caption carries a drop shadow.
+        // Caption carries a drop shadow and a read-along enable window.
         assert!(chain.contains("drawtext=text='hello'"));
         assert!(chain.contains("shadowx=2"));
+        assert!(chain.contains("enable='between(t,"));
         // No black pad bars.
         assert!(!chain.contains(":black"));
         // Emits the expected labelled output.
         assert!(chain.ends_with("[v0];"));
+    }
+
+    #[test]
+    fn split_caption_lines_wraps_on_word_boundaries() {
+        let lines = split_caption_lines("the quick brown fox jumps over the lazy dog", 15);
+        assert!(lines.len() > 1);
+        assert!(lines.iter().all(|l| l.chars().count() <= 15));
+        // No word is split across lines.
+        assert_eq!(
+            lines.join(" "),
+            "the quick brown fox jumps over the lazy dog"
+        );
+    }
+
+    #[test]
+    fn timed_caption_lines_cover_scene_without_gaps() {
+        let lines = vec![
+            "one".to_string(),
+            "two two".to_string(),
+            "three".to_string(),
+        ];
+        let timed = timed_caption_lines(&lines, 100);
+        // First starts at 0, last ends exactly at the frame count.
+        assert_eq!(timed.first().unwrap().1, 0);
+        assert_eq!(timed.last().unwrap().2, 100);
+        // Windows are contiguous and strictly increasing.
+        for pair in timed.windows(2) {
+            assert_eq!(pair[0].2, pair[1].1);
+            assert!(pair[0].1 < pair[0].2);
+        }
+    }
+
+    #[test]
+    fn read_along_emits_one_drawtext_per_line() {
+        // A long script wraps to multiple lines => multiple timed drawtexts.
+        let script = "This is a reasonably long narration sentence that should wrap \
+                      across several caption lines when rendered on screen.";
+        let chain = build_scene_video_chain(0, 0, 1920, 1080, 250, Some(script));
+        let count = chain.matches("drawtext=text=").count();
+        assert!(count >= 2, "expected multiple caption lines, got {count}");
+        assert_eq!(chain.matches("enable='between(t,").count(), count);
     }
 
     #[test]
