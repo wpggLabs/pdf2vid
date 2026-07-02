@@ -1,3 +1,4 @@
+use crate::chatterbox;
 use crate::cloud;
 use crate::edgetts;
 use crate::ffmpeg::{check_ffmpeg, check_ffprobe};
@@ -328,6 +329,19 @@ pub async fn preview_voice(
                 voice,
                 lang_code: lang,
                 speed: speed.unwrap_or(100) as f32 / 100.0,
+            })
+            .await?;
+            base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                resp.audio_base64.as_bytes(),
+            )
+            .map_err(|e| e.to_string())?
+        }
+        "chatterbox" => {
+            // Frontend sets the voice value to the language id.
+            let resp = chatterbox::synthesize(chatterbox::ChatterboxRequest {
+                text,
+                language_id: voice,
             })
             .await?;
             base64::Engine::decode(

@@ -56,6 +56,16 @@ pub fn provider_list() -> ProviderList {
                 category: ProviderCategory::Voice,
             },
             ProviderOption {
+                id: "chatterbox".into(),
+                label: "Chatterbox".into(),
+                kind: ProviderKind::Local,
+                detail: "Premium · Multilingual · Requires Python + chatterbox-tts (GPU)".into(),
+                implemented: true,
+                online: false,
+                key_label: None,
+                category: ProviderCategory::Voice,
+            },
+            ProviderOption {
                 id: "kokoro".into(),
                 label: "Kokoro".into(),
                 kind: ProviderKind::Local,

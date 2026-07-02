@@ -21,6 +21,41 @@ export function voiceOptionsFor(project: Project): React.ReactElement[] {
       <option key="ar-EG-SalmaNeural">Salma · Arabic</option>,
     ];
   }
+  if (project.voiceProvider === "chatterbox") {
+    // value = Chatterbox language id.
+    return [
+      <option key="en" value="en">
+        English
+      </option>,
+      <option key="es" value="es">
+        Spanish
+      </option>,
+      <option key="fr" value="fr">
+        French
+      </option>,
+      <option key="de" value="de">
+        German
+      </option>,
+      <option key="pt" value="pt">
+        Portuguese
+      </option>,
+      <option key="hi" value="hi">
+        Hindi
+      </option>,
+      <option key="ja" value="ja">
+        Japanese
+      </option>,
+      <option key="ko" value="ko">
+        Korean
+      </option>,
+      <option key="zh" value="zh">
+        Chinese
+      </option>,
+      <option key="ar" value="ar">
+        Arabic
+      </option>,
+    ];
+  }
   if (project.voiceProvider === "kokoro") {
     // value = Kokoro voice id (first letter is its language code).
     return [

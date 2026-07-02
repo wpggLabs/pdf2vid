@@ -1,4 +1,5 @@
 use crate::argos;
+use crate::chatterbox;
 use crate::cloud;
 use crate::edgetts;
 use crate::ffmpeg::{ensure_ffmpeg_or_error, ensure_ffprobe_or_error, Aspect};
@@ -1064,6 +1065,15 @@ async fn synthesize_with_provider(
                 voice: voice_name.to_string(),
                 lang_code: kokoro_lang_code(&project.language).to_string(),
                 speed: project.voice_speed as f32 / 100.0,
+            })
+            .await?;
+            resp.audio_base64
+        }
+        "chatterbox" => {
+            // Chatterbox uses the same ISO language ids as Argos.
+            let resp = chatterbox::synthesize(chatterbox::ChatterboxRequest {
+                text: text.to_string(),
+                language_id: argos_lang_code(&project.language).to_string(),
             })
             .await?;
             resp.audio_base64

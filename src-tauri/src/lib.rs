@@ -1,4 +1,5 @@
 pub mod argos;
+pub mod chatterbox;
 pub mod cloud;
 pub mod commands;
 pub mod edgetts;
