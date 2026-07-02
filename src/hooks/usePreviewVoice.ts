@@ -25,27 +25,30 @@ export function usePreviewVoice() {
     };
   }, []);
 
-  const preview = useCallback(async (provider: string, voice: string, text: string) => {
-    if (!text.trim()) {
-      setState({ loading: false, error: "Nothing to preview", audioUrl: null });
-      return;
-    }
-    setState({ loading: true, error: null, audioUrl: null });
-    try {
-      const url = await backendPreviewVoice(provider, voice, text);
-      if (audioRef.current) {
-        audioRef.current.src = url;
-        await audioRef.current.play().catch(() => undefined);
+  const preview = useCallback(
+    async (provider: string, voice: string, text: string, speed = 100) => {
+      if (!text.trim()) {
+        setState({ loading: false, error: "Nothing to preview", audioUrl: null });
+        return;
       }
-      setState({ loading: false, error: null, audioUrl: url });
-    } catch (e) {
-      setState({
-        loading: false,
-        error: e instanceof Error ? e.message : String(e),
-        audioUrl: null,
-      });
-    }
-  }, []);
+      setState({ loading: true, error: null, audioUrl: null });
+      try {
+        const url = await backendPreviewVoice(provider, voice, text, speed);
+        if (audioRef.current) {
+          audioRef.current.src = url;
+          await audioRef.current.play().catch(() => undefined);
+        }
+        setState({ loading: false, error: null, audioUrl: url });
+      } catch (e) {
+        setState({
+          loading: false,
+          error: e instanceof Error ? e.message : String(e),
+          audioUrl: null,
+        });
+      }
+    },
+    [],
+  );
 
   const stop = useCallback(() => {
     if (audioRef.current) {

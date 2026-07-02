@@ -35,6 +35,8 @@ export interface Project {
   outputTikTok: boolean;
   /** Pages skipped during import because they had no selectable text. */
   skippedPages?: number[];
+  /** Narration speed as a percentage (100 = normal). UI slider is 75–125. */
+  voiceSpeed: number;
 }
 
 export interface SystemStatus {

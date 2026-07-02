@@ -107,8 +107,15 @@ async fn synthesize_via_edge_tts(req: &TtsRequest) -> Result<TtsResponse, String
         .arg("--text")
         .arg(&req.text)
         .arg("--voice")
-        .arg(&req.voice)
-        .arg("--write-media")
+        .arg(&req.voice);
+    // edge-tts expects a signed percentage like "+15%" / "-20%".
+    if let Some(rate) = req.rate.as_deref().filter(|r| !r.is_empty()) {
+        cmd.arg("--rate").arg(rate);
+    }
+    if let Some(pitch) = req.pitch.as_deref().filter(|p| !p.is_empty()) {
+        cmd.arg("--pitch").arg(pitch);
+    }
+    cmd.arg("--write-media")
         .arg(&output_path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

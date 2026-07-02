@@ -293,7 +293,7 @@ fn build_render_filter(
     (inputs, filter)
 }
 
-fn override_preset(args: &mut Vec<String>, preset: &str) {
+fn override_preset(args: &mut [String], preset: &str) {
     // build_ffmpeg_args emits ["-preset", "fast"]; rewrite to use the
     // requested preset without disturbing surrounding flags.
     if let Some(i) = args.iter().position(|a| a == "-preset") {

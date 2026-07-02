@@ -803,6 +803,22 @@ fn is_english(language: &str) -> bool {
     language == "English (US)" || language.is_empty()
 }
 
+/// Convert a narration speed percentage (100 = normal) into an edge-tts
+/// `--rate` string like `+15%` / `-20%`. Returns `None` at 100% so we
+/// don't pass a no-op flag. The UI bounds speed to 75–125, but we clamp
+/// defensively in case a stale project carries an out-of-range value.
+pub(crate) fn speed_to_rate(speed: u32) -> Option<String> {
+    let clamped = speed.clamp(50, 200) as i32;
+    let delta = clamped - 100;
+    if delta == 0 {
+        None
+    } else if delta > 0 {
+        Some(format!("+{delta}%"))
+    } else {
+        Some(format!("{delta}%"))
+    }
+}
+
 fn resolve_voice(project: &Project, _script: &str) -> String {
     match project.voice_provider.as_str() {
         "edge" => edge_voice_for_language(&project.language).to_string(),
@@ -901,7 +917,7 @@ async fn synthesize_with_provider(
             let resp = edgetts::synthesize(edgetts::TtsRequest {
                 text: text.to_string(),
                 voice: voice_name.to_string(),
-                rate: None,
+                rate: speed_to_rate(project.voice_speed),
                 pitch: None,
             })
             .await?;
@@ -984,6 +1000,16 @@ mod tests {
         assert!(is_default_translator(&p));
         p.translation_provider = "openai".into();
         assert!(!is_default_translator(&p));
+    }
+
+    #[test]
+    fn speed_to_rate_maps_percentages() {
+        assert_eq!(speed_to_rate(100), None);
+        assert_eq!(speed_to_rate(125), Some("+25%".to_string()));
+        assert_eq!(speed_to_rate(75), Some("-25%".to_string()));
+        // Clamps defensively out-of-range values.
+        assert_eq!(speed_to_rate(0), Some("-50%".to_string()));
+        assert_eq!(speed_to_rate(999), Some("+100%".to_string()));
     }
 
     #[test]
@@ -1162,6 +1188,7 @@ mod tests {
             output_you_tube: true,
             output_tik_tok: false,
             skipped_pages: vec![],
+            voice_speed: 100,
         }
     }
 

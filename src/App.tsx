@@ -196,14 +196,16 @@ function App() {
       playback.play();
       // Kick off audio for the currently active scene so the user
       // actually hears something when they hit Play.
-      preview.preview(project.voiceProvider, project.voice, active.script).catch(() => undefined);
+      preview
+        .preview(project.voiceProvider, project.voice, active.script, project.voiceSpeed)
+        .catch(() => undefined);
     }
-  }, [playback, preview, project.voiceProvider, project.voice, active.script]);
+  }, [playback, preview, project.voiceProvider, project.voice, active.script, project.voiceSpeed]);
 
   // Preview voice (active scene's script)
   const handlePreviewVoice = useCallback(() => {
-    preview.preview(project.voiceProvider, project.voice, active.script);
-  }, [preview, project.voiceProvider, project.voice, active.script]);
+    preview.preview(project.voiceProvider, project.voice, active.script, project.voiceSpeed);
+  }, [preview, project.voiceProvider, project.voice, active.script, project.voiceSpeed]);
 
   const translationProvider = providers
     ? providerById(providers.translation, project.translationProvider)
@@ -604,8 +606,16 @@ function App() {
               {preview.error && <p className="preview-error">{preview.error}</p>}
               <div className="slider-row">
                 <span>Speed</span>
-                <input type="range" min="75" max="125" defaultValue="100" />
-                <output>1.00×</output>
+                <input
+                  type="range"
+                  min="75"
+                  max="125"
+                  value={project.voiceSpeed}
+                  onChange={(e) =>
+                    setProject((p) => ({ ...p, voiceSpeed: Number(e.target.value) }))
+                  }
+                />
+                <output>{(project.voiceSpeed / 100).toFixed(2)}×</output>
               </div>
               <div className="local-note">
                 <Check size={18} weight="fill" />

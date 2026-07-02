@@ -111,6 +111,7 @@ fn build_project_from_pages(name: &str, source: &str, pages: &[ImportedPage]) ->
         output_you_tube: true,
         output_tik_tok: false,
         skipped_pages: skipped,
+        voice_speed: 100,
     }
 }
 
@@ -623,7 +624,7 @@ fn build_filter(
     (inputs, filter)
 }
 
-fn override_preset(args: &mut Vec<String>, preset: &str) {
+fn override_preset(args: &mut [String], preset: &str) {
     if let Some(i) = args.iter().position(|a| a == "-preset") {
         if let Some(v) = args.get_mut(i + 1) {
             *v = preset.to_string();

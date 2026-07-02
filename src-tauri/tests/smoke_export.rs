@@ -273,7 +273,7 @@ fn build_filter(
     (inputs, filter)
 }
 
-fn override_preset(args: &mut Vec<String>, preset: &str) {
+fn override_preset(args: &mut [String], preset: &str) {
     if let Some(i) = args.iter().position(|a| a == "-preset") {
         if let Some(v) = args.get_mut(i + 1) {
             *v = preset.to_string();

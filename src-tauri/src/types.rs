@@ -44,6 +44,16 @@ pub struct Project {
     pub output_tik_tok: bool,
     #[serde(default)]
     pub skipped_pages: Vec<u32>,
+    /// Narration speed as a percentage (100 = normal). The UI slider is
+    /// bounded to 75–125. Converted to an edge-tts `--rate` string at
+    /// synthesis time. Defaults to 100 for projects saved before this field
+    /// existed.
+    #[serde(default = "default_voice_speed")]
+    pub voice_speed: u32,
+}
+
+pub fn default_voice_speed() -> u32 {
+    100
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

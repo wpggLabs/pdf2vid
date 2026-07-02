@@ -69,8 +69,13 @@ export function translateText(
   return invoke("translate_text", { provider, targetLanguage, text });
 }
 
-export function previewVoice(provider: string, voice: string, text: string): Promise<string> {
-  return invoke("preview_voice", { provider, voice, text });
+export function previewVoice(
+  provider: string,
+  voice: string,
+  text: string,
+  speed = 100,
+): Promise<string> {
+  return invoke("preview_voice", { provider, voice, text, speed });
 }
 
 export async function onExportProgress(

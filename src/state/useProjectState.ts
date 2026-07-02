@@ -25,6 +25,7 @@ const defaultProject: Project = {
   voice: "en-US-AriaNeural",
   outputYouTube: true,
   outputTikTok: true,
+  voiceSpeed: 100,
 };
 
 export interface ImportSummary {

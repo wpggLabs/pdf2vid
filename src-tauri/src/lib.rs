@@ -69,6 +69,7 @@ mod tests {
             output_you_tube: true,
             output_tik_tok: true,
             skipped_pages: vec![],
+            voice_speed: 100,
         }
     }
 

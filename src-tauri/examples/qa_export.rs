@@ -209,6 +209,7 @@ fn build_project_for_qa(name: &str, path: &Path) -> Result<Project, String> {
         output_you_tube: true,
         output_tik_tok: false,
         skipped_pages: skipped,
+        voice_speed: 100,
     })
 }
 

@@ -295,13 +295,14 @@ pub async fn preview_voice(
     provider: String,
     voice: String,
     text: String,
+    speed: Option<u32>,
 ) -> Result<String, String> {
     let audio = match provider.as_str() {
         "edge" => {
             let resp = match edgetts::synthesize(edgetts::TtsRequest {
                 text,
                 voice,
-                rate: None,
+                rate: render::speed_to_rate(speed.unwrap_or(100)),
                 pitch: None,
             })
             .await
