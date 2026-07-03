@@ -50,7 +50,7 @@ export function SettingsModal({ onClose, onOpenModels }: Props) {
       >
         <header>
           <h2>Provider settings</h2>
-          <button className="icon-button" onClick={onClose} aria-label="Close">
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
         </header>
@@ -58,6 +58,7 @@ export function SettingsModal({ onClose, onOpenModels }: Props) {
         <div className="settings-tabs">
           {(["translation", "voice", "visual"] as ProviderCategory[]).map((cat) => (
             <button
+              type="button"
               key={cat}
               className={cat === category ? "active" : ""}
               onClick={() => {
@@ -102,11 +103,11 @@ export function SettingsModal({ onClose, onOpenModels }: Props) {
 
         {status && <p className="modal-status">{status}</p>}
 
-        <button className="export-primary" onClick={handleSave}>
+        <button type="button" className="export-primary" onClick={handleSave}>
           Save securely
         </button>
 
-        <button className="export-secondary" onClick={onOpenModels}>
+        <button type="button" className="export-secondary" onClick={onOpenModels}>
           <Gear size={16} /> Manage local models
         </button>
       </section>

@@ -85,7 +85,7 @@ export function ModelsModal({ onClose }: Props) {
       >
         <header>
           <h2>Local models</h2>
-          <button className="icon-button" onClick={onClose} aria-label="Close">
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
         </header>
@@ -114,6 +114,7 @@ export function ModelsModal({ onClose }: Props) {
                       {prog.percent}% · {formatSize(prog.downloaded)} / {formatSize(prog.total)}
                     </span>
                     <button
+                      type="button"
                       className="icon-button"
                       onClick={handleCancel}
                       disabled={cancelling}
@@ -124,6 +125,7 @@ export function ModelsModal({ onClose }: Props) {
                   </div>
                 ) : model.installed ? (
                   <button
+                    type="button"
                     className="icon-button"
                     onClick={() => handleDelete(model)}
                     aria-label="Remove"
@@ -131,7 +133,11 @@ export function ModelsModal({ onClose }: Props) {
                     <Check size={16} /> <Trash size={14} />
                   </button>
                 ) : (
-                  <button className="export-primary compact" onClick={() => handleDownload(model)}>
+                  <button
+                    type="button"
+                    className="export-primary compact"
+                    onClick={() => handleDownload(model)}
+                  >
                     <Download size={14} /> Download
                   </button>
                 )}

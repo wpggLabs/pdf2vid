@@ -142,7 +142,7 @@ export function PreviewModal({
       >
         <header>
           <h2>Preview · {scene.title}</h2>
-          <button className="icon-button" onClick={onClose} aria-label="Close">
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
         </header>
@@ -161,10 +161,11 @@ export function PreviewModal({
         </div>
 
         <div className="preview-transport">
-          <button onClick={goPrev} aria-label="Previous scene">
+          <button type="button" onClick={goPrev} aria-label="Previous scene">
             <SkipBack weight="fill" />
           </button>
           <button
+            type="button"
             className="play"
             onClick={togglePlay}
             disabled={playDisabled}
@@ -172,7 +173,7 @@ export function PreviewModal({
           >
             {loading ? "…" : playing ? <Pause weight="fill" /> : <Play weight="fill" />}
           </button>
-          <button onClick={goNext} aria-label="Next scene">
+          <button type="button" onClick={goNext} aria-label="Next scene">
             <SkipForward weight="fill" />
           </button>
         </div>

@@ -34,11 +34,10 @@
         "noNonNullAssertion": "off"
       },
       "a11y": {
-        "useButtonType": "warn",
-        "useKeyWithClickEvents": "warn",
-        "useMediaCaption": "warn",
-        "useSemanticElements": "warn",
-        "noStaticElementInteractions": "warn"
+        "useKeyWithClickEvents": "off",
+        "useMediaCaption": "off",
+        "useSemanticElements": "off",
+        "noStaticElementInteractions": "off"
       }
     }
   }

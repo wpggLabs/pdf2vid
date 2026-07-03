@@ -98,7 +98,7 @@ export function ProviderHealth({ onOpenModels }: Props) {
         </div>
       )}
       {onOpenModels && (
-        <button className="link" onClick={onOpenModels}>
+        <button type="button" className="link" onClick={onOpenModels}>
           Manage local models
         </button>
       )}

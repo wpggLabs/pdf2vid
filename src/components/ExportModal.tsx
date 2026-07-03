@@ -70,7 +70,7 @@ export function ExportModal({ onClose, onStart, onOpenSettings, project }: Props
       >
         <header>
           <h2>Export video</h2>
-          <button className="icon-button" onClick={onClose} aria-label="Close">
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
         </header>
@@ -119,13 +119,14 @@ export function ExportModal({ onClose, onStart, onOpenSettings, project }: Props
           <div className="export-warning">
             <Gear size={18} />
             <span>Some providers need configuration before export.</span>
-            <button className="link" onClick={onOpenSettings}>
+            <button type="button" className="link" onClick={onOpenSettings}>
               Open settings
             </button>
           </div>
         )}
 
         <button
+          type="button"
           className="export-primary"
           onClick={handleStart}
           disabled={busy || selectedCount === 0 || blockingIssues.length > 0}

@@ -227,6 +227,7 @@ function App() {
         </div>
         <nav aria-label="Workspace">
           <button
+            type="button"
             className={ui.workspaceTab === "scenes" ? "nav-active" : ""}
             onClick={() => ui.setWorkspaceTab("scenes")}
           >
@@ -234,18 +235,20 @@ function App() {
             Scenes
           </button>
           <button
+            type="button"
             className={ui.workspaceTab === "preview" ? "nav-active" : ""}
             onClick={ui.handlePreviewTab}
           >
             <Play size={18} />
             Preview
           </button>
-          <button onClick={ui.openExport}>
+          <button type="button" onClick={ui.openExport}>
             <Export size={18} />
             Export
           </button>
         </nav>
         <button
+          type="button"
           className="icon-button"
           aria-label="Settings"
           onClick={() => ui.setSettingsOpen(true)}
@@ -262,6 +265,7 @@ function App() {
               <strong>{project.sourceName}</strong>
             </div>
             <button
+              type="button"
               className="icon-button"
               onClick={() => inputRef.current?.click()}
               aria-label="Import PDF"
@@ -279,7 +283,7 @@ function App() {
               if (file) importPdf(file);
             }}
           />
-          <button className="import-button" onClick={pickAndImportPdf}>
+          <button type="button" className="import-button" onClick={pickAndImportPdf}>
             <FilePdf size={20} />
             Import PDF
           </button>
@@ -333,6 +337,7 @@ function App() {
                 onClick={() => setActiveId(scene.id)}
               >
                 <button
+                  type="button"
                   className={`select-box ${scene.selected ? "checked" : ""}`}
                   onClick={(event) => {
                     event.stopPropagation();
@@ -369,7 +374,12 @@ function App() {
               <option value="youtube">YouTube · 1920×1080</option>
               <option value="tiktok">TikTok · 1080×1920</option>
             </select>
-            <button className="icon-button" onClick={ui.toggleFullscreen} aria-label="Fullscreen">
+            <button
+              type="button"
+              className="icon-button"
+              onClick={ui.toggleFullscreen}
+              aria-label="Fullscreen"
+            >
               <ArrowsOut size={18} />
             </button>
           </div>
@@ -389,17 +399,18 @@ function App() {
           <div className="transport">
             <span>{seconds(playback.totalElapsed)}</span>
             <div className="transport-actions">
-              <button onClick={skipBack} aria-label="Previous scene">
+              <button type="button" onClick={skipBack} aria-label="Previous scene">
                 <SkipBack weight="fill" />
               </button>
               <button
+                type="button"
                 className="play"
                 onClick={togglePlay}
                 aria-label={playback.playing ? "Pause" : "Play"}
               >
                 {playback.playing ? <Pause weight="fill" /> : <Play weight="fill" />}
               </button>
-              <button onClick={skipForward} aria-label="Next scene">
+              <button type="button" onClick={skipForward} aria-label="Next scene">
                 <SkipForward weight="fill" />
               </button>
             </div>
@@ -408,12 +419,14 @@ function App() {
           </div>
           <div className="timeline-tabs">
             <button
+              type="button"
               className={ui.timelineTab === "timeline" ? "active" : ""}
               onClick={() => ui.setTimelineTab("timeline")}
             >
               TIMELINE
             </button>
             <button
+              type="button"
               className={ui.timelineTab === "subtitles" ? "active" : ""}
               onClick={() => ui.setTimelineTab("subtitles")}
             >
@@ -430,6 +443,7 @@ function App() {
               <div className="clip-track">
                 {project.scenes.map((scene, index) => (
                   <button
+                    type="button"
                     key={scene.id}
                     className={scene.id === activeId ? "active" : ""}
                     style={{ flex: scene.duration }}
@@ -452,6 +466,7 @@ function App() {
                 <span>CC</span>
                 {project.scenes.map((scene) => (
                   <button
+                    type="button"
                     key={scene.id}
                     style={{ flex: scene.duration }}
                     onClick={() => setActiveId(scene.id)}
@@ -500,7 +515,7 @@ function App() {
                 })
               }
             />
-            <button className="delete" onClick={() => removeScene(active.id)}>
+            <button type="button" className="delete" onClick={() => removeScene(active.id)}>
               <Trash size={16} />
               Delete scene
             </button>
@@ -510,12 +525,14 @@ function App() {
         <aside className="inspector">
           <div className="inspector-tabs">
             <button
+              type="button"
               className={ui.inspectorTab === "script" ? "active" : ""}
               onClick={() => ui.setInspectorTab("script")}
             >
               SCRIPT
             </button>
             <button
+              type="button"
               className={ui.inspectorTab === "scene" ? "active" : ""}
               onClick={() => ui.setInspectorTab("scene")}
             >
@@ -557,7 +574,9 @@ function App() {
                         : "Runs on this device"
                       : "Uses your account"}
                   </span>
-                  <button onClick={() => ui.setSettingsOpen(true)}>Configure</button>
+                  <button type="button" onClick={() => ui.setSettingsOpen(true)}>
+                    Configure
+                  </button>
                 </div>
               )}
               {providers.voice.length > 0 && (
@@ -580,7 +599,9 @@ function App() {
                         : "Runs on this device"
                       : "Uses your account"}
                   </span>
-                  <button onClick={() => ui.setSettingsOpen(true)}>Configure</button>
+                  <button type="button" onClick={() => ui.setSettingsOpen(true)}>
+                    Configure
+                  </button>
                 </div>
               )}
               <label>
@@ -595,6 +616,7 @@ function App() {
                 </select>
               </label>
               <button
+                type="button"
                 className="preview-voice"
                 onClick={handlePreviewVoice}
                 disabled={preview.loading}
@@ -707,7 +729,7 @@ function App() {
                 <span>1080×1920 · H.264</span>
               </div>
             </label>
-            <button className="export-primary" onClick={ui.openExport}>
+            <button type="button" className="export-primary" onClick={ui.openExport}>
               <Export size={18} />
               Export video
             </button>
@@ -722,6 +744,7 @@ function App() {
         <span>{status}</span>
         {modelPrompt.neededModelId && (
           <button
+            type="button"
             className="status-action"
             onClick={() => modelPrompt.triggerDownload(modelPrompt.neededModelId!)}
             disabled={modelPrompt.downloading}

@@ -95,7 +95,7 @@ export function ProgressModal({ jobId, onClose }: Props) {
         <header>
           <h2>{done ? "Export complete" : error ? "Export failed" : "Exporting…"}</h2>
           {done || error ? (
-            <button className="icon-button" onClick={onClose} aria-label="Close">
+            <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
               <X size={18} />
             </button>
           ) : null}
@@ -118,7 +118,7 @@ export function ProgressModal({ jobId, onClose }: Props) {
               <div className="progress-modal-bar-fill" style={{ width: `${progress.percent}%` }} />
             </div>
             <span className="progress-modal-percent">{progress.percent}%</span>
-            <button className="export-secondary" onClick={handleCancel}>
+            <button type="button" className="export-secondary" onClick={handleCancel}>
               Cancel
             </button>
           </div>
@@ -240,7 +240,7 @@ export function ProgressModal({ jobId, onClose }: Props) {
               </div>
             )}
 
-            <button className="export-primary" onClick={onClose}>
+            <button type="button" className="export-primary" onClick={onClose}>
               Done
             </button>
           </div>
@@ -249,7 +249,7 @@ export function ProgressModal({ jobId, onClose }: Props) {
         {error && (
           <div className="progress-error">
             <p>{error}</p>
-            <button className="export-secondary" onClick={onClose}>
+            <button type="button" className="export-secondary" onClick={onClose}>
               Close
             </button>
           </div>
