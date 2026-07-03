@@ -51,7 +51,8 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Build matrix result: ${{ needs.build.result }}"
+      - run: |
+          echo "Build matrix result: ${{ needs.build.result }}"
       - if: needs.build.result != 'success'
         run: |
           echo "One or more platform builds failed"
