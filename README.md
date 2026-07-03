@@ -10,6 +10,8 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/wpggLabs/pdf2vid/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/wpggLabs/pdf2vid/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://wpggLabs.github.io/pdf2vid/"><img alt="Website" src="https://img.shields.io/badge/site-live-brightgreen"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <a href="https://v2.tauri.app/"><img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=black"></a>
   <a href="https://react.dev/"><img alt="React" src="https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white"></a>
