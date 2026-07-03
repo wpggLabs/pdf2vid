@@ -17,8 +17,9 @@ document data leaves the device before a request is submitted.
   provider ID under the `com.wpgglabs.pdf2vid` service name.
 - **Project state** — `app_data_dir/current-project.json` (per-platform
   standard location). Created with default user permissions.
-- **Model cache** — `app_data_dir/models/<model-id>/` for MarianMT and
-  Piper. Contains a `.installed` marker file plus downloaded model files.
+- **Model cache** — local voice/translation models (Kokoro, Chatterbox,
+  Argos) are managed by their Python packages under the user's cache /
+  Hugging Face directories.
 - **Audio and video cache** — `app_data_dir/cache/audio/` and
   `app_data_dir/cache/visuals/`. Cleared by the app on each export.
 
@@ -27,8 +28,8 @@ document data leaves the device before a request is submitted.
 The app only contacts the following origins, and only when the
 corresponding provider is selected:
 
-- `huggingface.co` — model file downloads (MarianMT, Piper voices).
-  One-time per model.
+- `huggingface.co` — local model weight downloads (Kokoro, Chatterbox).
+  One-time per model. Argos language packs come from the Argos index.
 - `*.api.cognitive.microsoft.com` — edge-tts synthesis via Python
   subprocess (per scene, when `edge` provider selected).
 - `api.streamelements.com` — StreamElements TTS fallback (per scene,
@@ -43,17 +44,17 @@ corresponding provider is selected:
 
 No telemetry, no analytics, no auto-update pings.
 
-## Local model license gates
+## Local model licenses
 
-Some MarianMT and Piper voices carry non-permissive licenses (CC-BY-NC).
-The model picker surfaces the license before download and requires explicit
-user acceptance for non-commercial-restricted models.
+The bundled local providers are permissively licensed: Kokoro (Apache-2.0),
+Chatterbox (MIT), and Argos Translate (MIT). They are opt-in Python
+packages the user installs explicitly.
 
 ## Disabling network entirely
 
 To run the app with zero network access after the initial model download,
-choose the **Piper** voice provider and the **MarianMT** translation
-provider. Both run fully offline once their model files are cached.
+choose a local voice provider (**Kokoro** or **Chatterbox**) with **Argos**
+translation. All three run fully offline once their weights/packs are cached.
 
 `edge-tts` is the highest-quality free default but requires Python with
 the `edge-tts` package installed plus network access to Microsoft's

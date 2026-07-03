@@ -20,8 +20,6 @@ Run `cargo run --example smoke` from `src-tauri/`. The binary:
 - [ ] ffprobe confirms both files have a video stream and an audio stream
 - [ ] Reports bytes saved and exit code
 
-Latest result captured in `docs/BUILD_LOG.md`.
-
 ## Import
 
 ### Normal PDF (text-based)
@@ -94,23 +92,19 @@ Latest result captured in `docs/BUILD_LOG.md`.
 
 ## Provider warnings
 
-### MarianMT + non-English language
+### Argos translation + non-English language
 
-- [ ] Set translation provider to MarianMT
-- [ ] Set output language to Spanish
-- [ ] Open the inspector
-- [ ] Warning banner appears: "MarianMT translation not yet implemented"
-- [ ] Click Export
-- [ ] After export, Progress modal shows a warning block: "N scenes used the source script because translation wasn't available"
-- [ ] Warning lists page numbers
+- [ ] Set translation provider to Argos, output language to Spanish
+- [ ] Open the inspector — offline-translation hint appears
+- [ ] With `argostranslate` installed, export translates the scripts
+- [ ] Without it, Progress modal shows a warning block: "N scenes used the source script because translation wasn't available", listing page numbers
 
-### Piper voice provider
+### Local voice fallback (Kokoro / Chatterbox)
 
-- [ ] Set voice provider to Piper
-- [ ] Click Preview voice
-- [ ] Clear error message: "Piper preview not yet implemented"
-- [ ] Click Export
-- [ ] Synthesizing stage surfaces the same error and the export fails gracefully
+- [ ] Set voice provider to Kokoro (or Chatterbox)
+- [ ] With the package missing, export falls back to edge-tts (no hard error)
+- [ ] With it installed, the Synthesizing stage shows the first-run
+      model-download progress, then produces audio
 
 ## Settings
 
