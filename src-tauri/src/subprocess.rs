@@ -14,6 +14,24 @@ use std::process::{Command, ExitStatus, Stdio};
 /// held across `.await` inside Tauri command futures (which must be `Send`).
 pub type ProgressFn<'a> = &'a (dyn Fn(&str) + Send + Sync);
 
+/// Suppress the console window a spawned program would otherwise flash on
+/// Windows (`CREATE_NO_WINDOW`). No-op on other platforms. Apply this to
+/// every `std::process::Command` we spawn, including short detection
+/// probes — those run at startup and on window focus, so a missing flag
+/// shows up as terminal windows popping open and closing.
+pub fn hide_window(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = cmd;
+    }
+}
+
 /// Spawn `cmd`, streaming stderr segments to `on_progress` as they arrive
 /// while draining stdout on a background thread (so a full stdout pipe
 /// can't deadlock the stderr reader). Returns the exit status, the full
@@ -24,6 +42,7 @@ pub fn run_with_progress(
 ) -> std::io::Result<(ExitStatus, String, String)> {
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    hide_window(&mut cmd);
     let mut child = cmd.spawn()?;
 
     // Drain stdout concurrently to avoid a pipe-full deadlock.

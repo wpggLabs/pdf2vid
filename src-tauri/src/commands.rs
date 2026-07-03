@@ -198,13 +198,13 @@ pub fn dependency_status() -> DependencyStatus {
 }
 
 fn probe_edge_tts_version(python: &std::path::Path) -> Option<String> {
-    let out = std::process::Command::new(python)
-        .args(["-c", "import edge_tts; print(edge_tts.__version__ if hasattr(edge_tts, '__version__') else 'installed')"])
+    let mut cmd = std::process::Command::new(python);
+    cmd.args(["-c", "import edge_tts; print(edge_tts.__version__ if hasattr(edge_tts, '__version__') else 'installed')"])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
+        .stderr(std::process::Stdio::null());
+    crate::subprocess::hide_window(&mut cmd);
+    let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;
     }

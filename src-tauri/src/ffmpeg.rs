@@ -52,22 +52,20 @@ pub fn check_ffmpeg() -> bool {
     let Some(path) = ffmpeg_path() else {
         return false;
     };
-    std::process::Command::new(path)
-        .arg("-version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    let mut cmd = std::process::Command::new(path);
+    cmd.arg("-version");
+    crate::subprocess::hide_window(&mut cmd);
+    cmd.output().map(|o| o.status.success()).unwrap_or(false)
 }
 
 pub fn check_ffprobe() -> bool {
     let Some(path) = ffprobe_path() else {
         return false;
     };
-    std::process::Command::new(path)
-        .arg("-version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    let mut cmd = std::process::Command::new(path);
+    cmd.arg("-version");
+    crate::subprocess::hide_window(&mut cmd);
+    cmd.output().map(|o| o.status.success()).unwrap_or(false)
 }
 
 pub fn ensure_ffmpeg_or_error() -> Result<PathBuf, String> {

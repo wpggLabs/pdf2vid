@@ -99,13 +99,14 @@ pub fn detect_python_with_edge_tts() -> Option<PathBuf> {
         vec!["python3", "python"]
     };
     for cmd in candidates {
-        let probe = std::process::Command::new(cmd)
+        let mut command = std::process::Command::new(cmd);
+        command
             .args(["-c", "import edge_tts; print(edge_tts.__file__)"])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-            .ok();
+            .stderr(Stdio::null());
+        crate::subprocess::hide_window(&mut command);
+        let probe = command.output().ok();
         if let Some(out) = probe {
             if out.status.success() {
                 let path_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
