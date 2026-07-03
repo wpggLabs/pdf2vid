@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-label="pdf2vid">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b0e14"/>
+      <stop offset="1" stop-color="#131824"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffc131"/>
+      <stop offset="1" stop-color="#6ea8fe"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.32" r="0.6">
+      <stop offset="0" stop-color="#6ea8fe" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#6ea8fe" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#glow)"/>
+  <rect x="0" y="0" width="1280" height="6" fill="url(#brand)"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" text-anchor="middle">
+    <text x="640" y="288" font-size="132" font-weight="800" letter-spacing="-5" fill="#eef1f6">pdf2<tspan fill="url(#brand)">vid</tspan></text>
+    <text x="640" y="352" font-size="34" font-weight="600" fill="#aeb6c6">Turn PDFs into narrated <tspan fill="#eef1f6" font-weight="700">read-along videos</tspan></text>
+    <text x="640" y="398" font-size="26" font-weight="500" fill="#8b93a6">for YouTube &amp; TikTok · free &amp; local-first · no telemetry</text>
+
+    <!-- chips -->
+    <g font-size="20" font-weight="600" fill="#c7cedd">
+      <g transform="translate(354, 452)">
+        <rect x="0" y="0" width="196" height="44" rx="22" fill="#1a2030" stroke="#28324a"/>
+        <text x="98" y="29">Read-along captions</text>
+      </g>
+      <g transform="translate(566, 452)">
+        <rect x="0" y="0" width="150" height="44" rx="22" fill="#1a2030" stroke="#28324a"/>
+        <text x="75" y="29">Many voices</text>
+      </g>
+      <g transform="translate(732, 452)">
+        <rect x="0" y="0" width="194" height="44" rx="22" fill="#1a2030" stroke="#28324a"/>
+        <text x="97" y="29">Win · macOS · Linux</text>
+      </g>
+    </g>
+  </g>
+</svg>
