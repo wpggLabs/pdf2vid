@@ -29,6 +29,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { usePreviewVoice } from "./hooks/usePreviewVoice";
 import { useTimelinePlayback } from "./hooks/useTimelinePlayback";
 import { useTranslationModelPrompt } from "./hooks/useTranslationModelPrompt";
+import { captionLineAt, wrapCaptionLines } from "./lib/captions";
 import { voiceOptionsFor } from "./lib/voiceOptions";
 import { useProjectState } from "./state/useProjectState";
 import { useWorkspaceUi } from "./state/useWorkspaceUi";
@@ -213,6 +214,15 @@ function App() {
 
   const totalDuration = duration;
 
+  // Read-along preview caption: show the single line that matches the
+  // current playback position (mirrors the line-by-line export) instead
+  // of dumping the whole script over the page.
+  const captionLines = useMemo(() => wrapCaptionLines(active.script), [active.script]);
+  const previewCaption = useMemo(() => {
+    const progress = playback.playing ? playback.elapsedInScene / Math.max(1, active.duration) : 0;
+    return captionLineAt(captionLines, progress);
+  }, [captionLines, playback.playing, playback.elapsedInScene, active.duration]);
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -393,7 +403,7 @@ function App() {
                   <strong>Import a PDF to begin</strong>
                 </div>
               )}
-              <p>{active.script}</p>
+              {previewCaption && <p>{previewCaption}</p>}
             </div>
           </div>
           <div className="transport">
