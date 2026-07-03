@@ -175,19 +175,34 @@ export async function extractPageText(page: PdfPage): Promise<string> {
 }
 
 /**
- * Render a thumbnail JPEG for a PDF page. Returns a data URL string
- * suitable for `<img src>`. Returns an empty string if rendering
- * fails for any reason (the rest of the import must still succeed).
+ * Render a high-resolution JPEG for a PDF page. Returns a data URL string
+ * suitable for `<img src>` that is *also* the source image for the export.
+ *
+ * The same image is composited into the 1080p (and 1080×1920 portrait)
+ * video, so it must be rendered at a high enough resolution to stay sharp
+ * after FFmpeg scales it to fit — plus headroom for the Ken Burns zoom.
+ * We target ~2200px on the long edge (roughly 2× the 1080p short edge),
+ * which supersamples both the editor preview and the exported frame.
+ *
+ * Returns an empty string if rendering fails for any reason (the rest of
+ * the import must still succeed).
  */
 export async function renderPageThumbnail(page: PdfPage): Promise<string> {
-  const viewport = page.getViewport({ scale: 0.42 });
+  const base = page.getViewport({ scale: 1 });
+  const targetLongEdge = 2200;
+  // Cap the scale so tiny pages don't blow up the canvas; allow <1 so an
+  // already-huge page is downsampled rather than kept at full size.
+  const scale = Math.min(4, targetLongEdge / Math.max(base.width, base.height));
+  const viewport = page.getViewport({ scale });
   const canvas = window.document.createElement("canvas");
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
+  canvas.width = Math.round(viewport.width);
+  canvas.height = Math.round(viewport.height);
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     return "";
   }
   await page.render({ canvas, canvasContext: ctx, viewport }).promise;
-  return canvas.toDataURL("image/jpeg", 0.82);
+  // High JPEG quality keeps text edges crisp; 0.92 is near-lossless for
+  // document pages while staying far smaller than PNG.
+  return canvas.toDataURL("image/jpeg", 0.92);
 }

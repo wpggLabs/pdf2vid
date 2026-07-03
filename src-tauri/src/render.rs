@@ -899,8 +899,8 @@ fn build_scene_video_chain(
     let mut chain = format!(
         "[{v_idx}:v]split=2[bg{i}][fg{i}];\
 [bg{i}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=24:2,eq=brightness=-0.12:saturation=1.15[bgb{i}];\
-[fg{i}]scale={w}:{h}:force_original_aspect_ratio=decrease[fgs{i}];\
-[bgb{i}][fgs{i}]overlay=(W-w)/2:(H-h)/2,zoompan=z='min(zoom+0.0008,1.15)':d={frames}:s={w}x{h}:fps=25,vignette=PI/5,setsar=1,fps=25,format=yuv420p"
+[fg{i}]scale={w}:{h}:force_original_aspect_ratio=decrease:flags=lanczos[fgs{i}];\
+[bgb{i}][fgs{i}]overlay=(W-w)/2:(H-h)/2,zoompan=z='min(zoom+0.0006,1.10)':d={frames}:s={w}x{h}:fps=25,vignette=PI/5,setsar=1,fps=25,format=yuv420p"
     );
     if let Some(script) = caption {
         // Read-along captions follow the narration. When word-accurate
