@@ -3,12 +3,39 @@
 # Docs: https://embarkstudios.github.io/cargo-deny/
 
 [advisories]
-# RustSec advisory database. Known vulnerabilities fail the build; yanked
-# crates and unmaintained notices warn (they are informational, not
-# exploitable on their own).
+# RustSec advisory database. Known vulnerabilities in our own dependency
+# tree fail the build; yanked crates warn.
 version = 2
 yanked = "warn"
-ignore = []
+# Advisories in transitive crates we do not control. Two sources:
+#   * The GTK3 stack that Tauri requires for the Linux webview (gtk-rs and
+#     friends are unmaintained but have no upstream replacement yet).
+#   * The dev-only `pdf-extract` fixture parser used by the ignored
+#     integration tests (lopdf, ttf-parser, unic-*, quick-xml) — it never
+#     runs in the shipped app.
+# Tracked for upstream upgrades; revisit when Tauri moves off GTK3.
+ignore = [
+  "RUSTSEC-2024-0370",
+  "RUSTSEC-2024-0411",
+  "RUSTSEC-2024-0412",
+  "RUSTSEC-2024-0413",
+  "RUSTSEC-2024-0414",
+  "RUSTSEC-2024-0415",
+  "RUSTSEC-2024-0416",
+  "RUSTSEC-2024-0417",
+  "RUSTSEC-2024-0418",
+  "RUSTSEC-2024-0419",
+  "RUSTSEC-2024-0420",
+  "RUSTSEC-2025-0075",
+  "RUSTSEC-2025-0080",
+  "RUSTSEC-2025-0081",
+  "RUSTSEC-2025-0098",
+  "RUSTSEC-2025-0100",
+  "RUSTSEC-2026-0187",
+  "RUSTSEC-2026-0192",
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+]
 
 [bans]
 # Multiple versions of the same crate bloat the binary but are common in
