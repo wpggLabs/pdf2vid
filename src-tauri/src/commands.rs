@@ -197,6 +197,97 @@ pub fn dependency_status() -> DependencyStatus {
     }
 }
 
+/// An optional local model provider the user can install to unlock a
+/// feature. Surfaced in the UI with a copyable install command.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalDep {
+    pub id: String,
+    pub label: String,
+    pub purpose: String,
+    pub installed: bool,
+    pub command: String,
+    pub docs: String,
+}
+
+/// Detect whether the optional local providers (Argos translation, Kokoro
+/// and Chatterbox voices) are installed, and return the exact pip command
+/// to get each one. Detection uses `importlib.util.find_spec`, which
+/// checks importability *without* importing the (heavy) package, so this
+/// stays fast even when torch-based models are installed.
+#[tauri::command]
+pub fn local_deps() -> Vec<LocalDep> {
+    let python = find_any_python();
+    let check = |module: &str| {
+        python
+            .as_ref()
+            .map(|p| module_available(p, module))
+            .unwrap_or(false)
+    };
+    vec![
+        LocalDep {
+            id: "argos".into(),
+            label: "Argos Translate".into(),
+            purpose: "Offline translation for non-English output".into(),
+            installed: check("argostranslate"),
+            command: "pip install argostranslate".into(),
+            docs: "https://github.com/argosopentech/argos-translate".into(),
+        },
+        LocalDep {
+            id: "kokoro".into(),
+            label: "Kokoro voice".into(),
+            purpose: "Fast local voice · 8 languages · runs on CPU".into(),
+            installed: check("kokoro"),
+            command: "pip install kokoro soundfile".into(),
+            docs: "https://github.com/hexgrad/kokoro".into(),
+        },
+        LocalDep {
+            id: "chatterbox".into(),
+            label: "Chatterbox voice".into(),
+            purpose: "Premium multilingual voice · 23 languages · GPU recommended".into(),
+            installed: check("chatterbox"),
+            command: "pip install chatterbox-tts torchaudio".into(),
+            docs: "https://github.com/resemble-ai/chatterbox".into(),
+        },
+    ]
+}
+
+/// Find any Python 3 interpreter on PATH (independent of installed packages).
+fn find_any_python() -> Option<std::path::PathBuf> {
+    let candidates = if cfg!(windows) {
+        ["python", "python3", "py"]
+    } else {
+        ["python3", "python", "py"]
+    };
+    for name in candidates {
+        let mut cmd = std::process::Command::new(name);
+        cmd.args(["-c", "import sys; sys.exit(0)"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        crate::subprocess::hide_window(&mut cmd);
+        if cmd.status().map(|s| s.success()).unwrap_or(false) {
+            return Some(std::path::PathBuf::from(name));
+        }
+    }
+    None
+}
+
+/// Whether `module` is importable by `python`, checked cheaply via
+/// `find_spec` (does not import the module).
+fn module_available(python: &std::path::Path, module: &str) -> bool {
+    let code = format!(
+        "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('{module}') else 1)"
+    );
+    let mut cmd = std::process::Command::new(python);
+    cmd.args(["-c", &code])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    crate::subprocess::hide_window(&mut cmd);
+    cmd.status().map(|s| s.success()).unwrap_or(false)
+}
+
 fn probe_edge_tts_version(python: &std::path::Path) -> Option<String> {
     let mut cmd = std::process::Command::new(python);
     cmd.args(["-c", "import edge_tts; print(edge_tts.__version__ if hasattr(edge_tts, '__version__') else 'installed')"])

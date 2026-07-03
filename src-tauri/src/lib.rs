@@ -34,6 +34,7 @@ pub fn run() {
             commands::read_pdf_file,
             commands::check_tts_engine,
             commands::dependency_status,
+            commands::local_deps,
             commands::cancel_model_download,
             commands::download_model,
             commands::delete_model,

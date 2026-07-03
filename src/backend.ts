@@ -151,3 +151,16 @@ export interface DependencyStatus {
 export function dependencyStatus(): Promise<DependencyStatus> {
   return invoke("dependency_status");
 }
+
+export interface LocalDep {
+  id: string;
+  label: string;
+  purpose: string;
+  installed: boolean;
+  command: string;
+  docs: string;
+}
+
+export function localDeps(): Promise<LocalDep[]> {
+  return invoke("local_deps");
+}

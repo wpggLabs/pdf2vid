@@ -110,7 +110,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .provider-health-row{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
 .provider-health-row strong{font-size:11px;font-weight:600}
 .provider-health-detail{color:var(--muted);font-size:10px;line-height:1.3}
-.provider-health-cmd{display:block;font-family:"IBM Plex Mono",monospace;font-size:10px;background:#0d0f12;color:#7ca9ef;padding:4px 6px;border-radius:2px;margin-top:3px;overflow-x:auto;white-space:nowrap}
+.provider-health-cmd{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;font-family:"IBM Plex Mono",monospace;font-size:10px;background:#0d0f12;color:#7ca9ef;padding:4px 6px;border:1px solid #23262c;border-radius:2px;margin-top:3px;cursor:pointer;text-align:left}
+.provider-health-cmd:hover{border-color:#3a67c4;color:#9dc0ff}
+.provider-health-cmd code{overflow-x:auto;white-space:nowrap;background:none;padding:0}
+.provider-health-optional{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.provider-health-optional .provider-health-head{margin-bottom:4px}
+.provider-health-hint-text{color:var(--muted);font-size:10px;line-height:1.4;margin:0 0 8px}
+.provider-health-hint-text code{background:#0d0f12;padding:1px 4px;border-radius:2px}
 .provider-health-warning{display:flex;align-items:flex-start;gap:6px;margin-top:8px;padding:8px;background:#3a2c1a;border:1px solid #6b5524;border-radius:3px;color:#ffd28a;font-size:10px;line-height:1.4}
 .provider-health .link{margin-top:8px;background:transparent;border:0;color:#7ca9ef;font-size:11px;cursor:pointer;text-decoration:underline;padding:0}
 
