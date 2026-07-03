@@ -264,12 +264,12 @@ All event payloads are typed in `src/api.ts` and matched by the
 
 | Platform | Artifact | Type |
 |---|---|---|
-| Windows | `pdf2vid_0.1.0_x64_en-US.msi` | WiX MSI |
-| Windows | `pdf2vid_0.1.0_x64-setup.exe` | NSIS EXE |
-| macOS | `pdf2vid_0.1.0_*.dmg` | DMG |
+| Windows | `pdf2vid_<version>_x64_en-US.msi` | WiX MSI |
+| Windows | `pdf2vid_<version>_x64-setup.exe` | NSIS EXE |
+| macOS | `pdf2vid_<version>_*.dmg` | DMG |
 | macOS | `pdf2vid.app` | Bundle |
-| Linux | `pdf2vid_0.1.0_amd64.deb` | Debian |
-| Linux | `pdf2vid_0.1.0_amd64.AppImage` | AppImage |
-| Linux | `pdf2vid-0.1.0-*.rpm` | RPM |
+| Linux | `pdf2vid_<version>_amd64.deb` | Debian |
+| Linux | `pdf2vid_<version>_amd64.AppImage` | AppImage |
+| Linux | `pdf2vid-<version>-*.rpm` | RPM |
 
 See [BUILDING.md](../BUILDING.md) for build commands per platform.

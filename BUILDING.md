@@ -80,7 +80,7 @@ in parallel when you push a `v*` tag.
 
 1. Bump version in `package.json` and `src-tauri/Cargo.toml`.
 2. Update `CHANGELOG.md` with the release notes.
-3. Commit and push a `v0.1.0` tag.
+3. Commit and push a `vX.Y.Z` tag.
 4. `.github/workflows/release.yml` triggers:
    - Windows installer (`.msi` + `.exe`)
    - macOS bundles (`.dmg` + `.app` for x86_64 and arm64)

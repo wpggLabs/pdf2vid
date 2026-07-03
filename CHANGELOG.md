@@ -4,16 +4,20 @@ All notable changes to pdf2vid are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] - 2026-07-03
 
 ### Added
 
+- **Guided model install** — the Runtime tools panel now lists Argos,
+  Kokoro, and Chatterbox with a click-to-copy `pip install` command and
+  live installed/not status (detected via `importlib.find_spec`).
+- **Branded app icon** (PDF document + play badge), replacing the default.
 - **Read-along captions** — the on-screen text follows the narration line
   by line; word-accurate when using edge-tts (subtitles are parsed into
-  timing cues), proportional otherwise.
+  timing cues), proportional otherwise. The editor preview shows the same
+  line-by-line caption instead of the whole script.
 - **Premium render** — blurred, graded backdrop instead of black
-  letterbox bars, Ken Burns motion, vignette, and drop-shadow captions;
-  higher-quality encode (crf 20).
+  letterbox bars, Ken Burns motion, vignette, and drop-shadow captions.
 - **Kokoro** and **Chatterbox Multilingual** local voice providers, and
   **Argos** offline translation (replacing the MarianMT stub) — all via
   opt-in Python subprocesses with graceful fallback to edge-tts.
@@ -25,15 +29,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Sharper output** — PDF pages render at ~2200px (was ~257px) and the
+  video is supersampled (composited at 2× then Lanczos-downscaled), so
+  pages stay crisp in the editor and export. Encode raised to crf 18.
 - Scene duration is now derived from the actual narration audio (via
   `ffprobe`) instead of a word-count estimate.
 - Default translation provider is **Argos** (offline), not MarianMT.
 
 ### Fixed
 
+- **No more console pop-ups** — every subprocess (FFmpeg/FFprobe/Python
+  detection and synthesis) now suppresses its console window on Windows;
+  Python detection is cached instead of re-probed per scene.
 - `zoompan` no longer multiplied frames from a looped image input
   (single-frame input keeps multi-scene concat correct).
-- Release workflow fetches the FFmpeg sidecar for the correct host target.
+- Release workflow fetches the FFmpeg sidecar for the correct host target
+  (Linux uses the BtbN GitHub build; browser User-Agent avoids 415s).
 
 ### Historical
 

@@ -1,6 +1,6 @@
 [package]
 name = "pdf2vid"
-version = "0.1.0"
+version = "0.1.1"
 description = "Professional local-first PDF to video studio"
 authors = ["wpggLabs"]
 license = "MIT"
