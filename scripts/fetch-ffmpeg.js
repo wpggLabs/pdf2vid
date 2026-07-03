@@ -61,7 +61,9 @@ const SOURCES = {
     },
   },
   "linux-x86_64": {
-    url: "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
+    // BtbN GitHub builds are used instead of johnvansickle.com, which
+    // returns HTTP 415 to CI/curl requests (hotlink protection).
+    url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz",
     extract: (tarPath, outDir) => {
       execSync(`tar -xJf "${tarPath}" -C "${outDir}"`, { stdio: "inherit" });
       return execSync(`find "${outDir}" -type f -name ffmpeg | head -1`, {
@@ -122,7 +124,13 @@ function download(url, dest) {
     return;
   }
   console.log(`↓ Downloading ${url}`);
-  execSync(`curl -L --fail -o "${dest}" "${url}"`, { stdio: "inherit", shell: true });
+  // A browser User-Agent avoids 4xx from mirrors that block bare curl.
+  const ua =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+  execSync(`curl -L --fail -A "${ua}" -o "${dest}" "${url}"`, {
+    stdio: "inherit",
+    shell: true,
+  });
 }
 
 function fetchTarget(key) {
