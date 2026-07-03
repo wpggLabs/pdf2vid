@@ -35,9 +35,9 @@ and tooling can navigate the codebase.
 │  │  →synthesize     │  └────────────────┘  └─────────────────┘  │
 │  │  →visual→compose │                                           │
 │  └──────────────────┘  ┌────────────────┐  ┌─────────────────┐  │
-│                        │  models.rs     │  │  ffmpeg.rs      │  │
-│                        │  MarianMT +    │  │  detection +    │  │
-│                        │  Piper download│  │  arg builders   │  │
+│                        │  kokoro/chatter│  │  ffmpeg.rs      │  │
+│                        │  box/argos +   │  │  detection +    │  │
+│                        │  subprocess.rs │  │  arg builders   │  │
 │                        └────────────────┘  └─────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
              │
@@ -75,7 +75,7 @@ change (debounced 600 ms) and restored on mount via `load_project`.
 | `App.tsx` | Three-pane shell, status bar, top-level modals |
 | `ExportModal` | Output folder picker via `@tauri-apps/plugin-dialog` |
 | `SettingsModal` | Per-category provider and API key configuration |
-| `ModelsModal` | MarianMT and Piper model download/delete with progress |
+| `ModelsModal` | Local model download/delete with progress |
 | `ProgressModal` | Live export progress with stage labels and cancel |
 | `PreviewModal` | Fullscreen scene preview with TTS playback |
 
@@ -85,7 +85,7 @@ change (debounced 600 ms) and restored on mount via `load_project`.
 |---|---|
 | `useTimelinePlayback` | Timer-driven scene advancement for the Play button |
 | `usePreviewVoice` | Manages a single `<audio>` element and TTS fetch |
-| `useTranslationModelPrompt` | Detects MarianMT-without-model state and triggers download |
+| `useTranslationModelPrompt` | Legacy MarianMT model prompt (Argos now auto-installs packs) |
 
 ### Backend Bridge (`backend.ts`)
 
@@ -106,7 +106,7 @@ All Tauri commands are registered in `lib.rs:21` and implemented in
 | `save_project` / `load_project` | Project persistence in `app_data_dir` |
 | `store_api_key` | Keyring-backed secret storage |
 | `list_providers` | Returns the provider registry descriptor |
-| `list_models` / `download_model` / `delete_model` / `is_model_installed` | MarianMT and Piper model management |
+| `list_models` / `download_model` / `delete_model` / `is_model_installed` | Local model management |
 | `translate_text` | One-shot translation preview |
 | `preview_voice` | One-shot TTS preview (returns data URL) |
 | `validate_export` | Pre-flight check (output formats, scenes, scripts, FFmpeg) |
@@ -149,9 +149,11 @@ Tests enforce:
 `export:progress` events:
 
 1. **Plan** — validate output formats, scenes, scripts, FFmpeg
-2. **Translate** — MarianMT (local) or cloud HTTP per scene
-3. **Synthesize** — voice provider with automatic fallback chain
-4. **Visual + Compose** — write page JPGs, run FFmpeg with filtergraph
+2. **Translate** — Argos (local subprocess) or cloud HTTP per scene
+3. **Synthesize** — voice provider with automatic fallback chain; edge-tts
+   also emits subtitle cues for word-accurate read-along captions
+4. **Visual + Compose** — write page JPGs, run FFmpeg with the premium
+   filtergraph (blurred backdrop, Ken Burns, vignette, timed captions)
 
 The pipeline is async-aware but uses `std::process::Command` for FFmpeg
 because FFmpeg's output is naturally bounded (one MP4 per scene-pair, not a
@@ -182,9 +184,10 @@ message that the frontend surfaces in the status bar and the ProgressModal.
 
 ### Model Registry (`models.rs`)
 
-Models are described by a static `ModelSpec` table:
-- MarianMT pairs for the 9 advertised non-English languages
-- Piper voices for offline TTS (Amy, Ryan)
+Models are described by a static `ModelSpec` table. Note that the
+default local providers (Argos, Kokoro, Chatterbox) manage their own
+weights via their Python packages and stream download progress through
+`subprocess::run_with_progress`, so they do not need entries here.
 
 `download_model` streams each file with progress events:
 `model:progress { downloaded, total, percent }` and a final
