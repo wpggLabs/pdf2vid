@@ -202,7 +202,7 @@ export async function renderPageThumbnail(page: PdfPage): Promise<string> {
     return "";
   }
   await page.render({ canvas, canvasContext: ctx, viewport }).promise;
-  // High JPEG quality keeps text edges crisp; 0.92 is near-lossless for
-  // document pages while staying far smaller than PNG.
-  return canvas.toDataURL("image/jpeg", 0.92);
+  // Near-lossless JPEG keeps text edges crisp while staying far smaller
+  // than PNG for a full-colour page.
+  return canvas.toDataURL("image/jpeg", 0.95);
 }

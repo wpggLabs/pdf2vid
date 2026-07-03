@@ -592,7 +592,7 @@ pub fn build_ffmpeg_args(
     args.push("-preset".to_string());
     args.push("medium".to_string());
     args.push("-crf".to_string());
-    args.push("20".to_string());
+    args.push("18".to_string());
     args.push("-pix_fmt".to_string());
     args.push("yuv420p".to_string());
     args.push("-c:a".to_string());
@@ -896,11 +896,18 @@ fn build_scene_video_chain(
     // NOT `-loop`ed), so `d` is the total number of output frames for the
     // scene. `fps=25` pins the output rate; `setsar=1` + `format` keep
     // every scene concat-compatible.
+    //
+    // The page, blur, Ken Burns zoom and vignette are all composited at 2×
+    // the output resolution and then downscaled with Lanczos. This
+    // supersamples the frame so text stays razor sharp even at maximum
+    // zoom; the captions are drawn afterwards at native resolution.
+    let sw = w * 2;
+    let sh = h * 2;
     let mut chain = format!(
         "[{v_idx}:v]split=2[bg{i}][fg{i}];\
-[bg{i}]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=24:2,eq=brightness=-0.12:saturation=1.15[bgb{i}];\
-[fg{i}]scale={w}:{h}:force_original_aspect_ratio=decrease:flags=lanczos[fgs{i}];\
-[bgb{i}][fgs{i}]overlay=(W-w)/2:(H-h)/2,zoompan=z='min(zoom+0.0006,1.10)':d={frames}:s={w}x{h}:fps=25,vignette=PI/5,setsar=1,fps=25,format=yuv420p"
+[bg{i}]scale={sw}:{sh}:force_original_aspect_ratio=increase,crop={sw}:{sh},boxblur=48:2,eq=brightness=-0.12:saturation=1.15[bgb{i}];\
+[fg{i}]scale={sw}:{sh}:force_original_aspect_ratio=decrease:flags=lanczos[fgs{i}];\
+[bgb{i}][fgs{i}]overlay=(W-w)/2:(H-h)/2,zoompan=z='min(zoom+0.0006,1.10)':d={frames}:s={sw}x{sh}:fps=25,vignette=PI/5,scale={w}:{h}:flags=lanczos,setsar=1,fps=25,format=yuv420p"
     );
     if let Some(script) = caption {
         // Read-along captions follow the narration. When word-accurate
