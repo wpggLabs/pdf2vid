@@ -92,7 +92,16 @@ fn parse_timestamp(s: &str) -> Option<f64> {
 ///
 /// Tries `python`, `python3`, and `py` in order. Returns the path to the
 /// interpreter that has `edge_tts` importable, or None if not available.
+///
+/// The successful result is cached for the life of the process: export
+/// synthesizes one scene at a time, and re-probing every interpreter for
+/// every scene spawned a burst of short-lived subprocesses. A failed
+/// probe is not cached, so installing Python mid-session still works.
 pub fn detect_python_with_edge_tts() -> Option<PathBuf> {
+    static CACHED: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    if let Some(path) = CACHED.get() {
+        return Some(path.clone());
+    }
     let candidates = if cfg!(windows) {
         vec!["python", "python3", "py"]
     } else {
@@ -117,6 +126,7 @@ pub fn detect_python_with_edge_tts() -> Option<PathBuf> {
                         // Resolve on PATH for non-absolute invocations.
                         which(cmd).unwrap_or_else(|| PathBuf::from(cmd))
                     };
+                    let _ = CACHED.set(path.clone());
                     return Some(path);
                 }
             }
