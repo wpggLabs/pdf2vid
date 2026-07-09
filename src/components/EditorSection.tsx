@@ -149,6 +149,7 @@ export function EditorSection({
             <Waveform size={17} />
             <div>
               {Array.from({ length: 58 }, (_, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: purely decorative static bars; the index is the identity.
                 <i key={index} style={{ height: `${18 + ((index * 13) % 30)}%` }} />
               ))}
             </div>

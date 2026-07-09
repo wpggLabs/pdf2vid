@@ -101,7 +101,7 @@ function App() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [setStatus]);
 
   // Refresh system status on window focus.
   useEffect(() => {
@@ -117,7 +117,7 @@ function App() {
     };
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
-  }, []);
+  }, [setStatus]);
 
   async function pickAndImportPdf() {
     try {
@@ -157,12 +157,12 @@ function App() {
   const skipBack = useCallback(() => {
     const prev = selectedScenes[Math.max(0, selectedIndex - 1)];
     if (prev) setActiveId(prev.id);
-  }, [selectedIndex, selectedScenes]);
+  }, [selectedIndex, selectedScenes, setActiveId]);
 
   const skipForward = useCallback(() => {
     const next = selectedScenes[Math.min(selectedScenes.length - 1, selectedIndex + 1)];
     if (next) setActiveId(next.id);
-  }, [selectedIndex, selectedScenes]);
+  }, [selectedIndex, selectedScenes, setActiveId]);
 
   // Play / pause the timeline simulation
   const togglePlay = useCallback(() => {

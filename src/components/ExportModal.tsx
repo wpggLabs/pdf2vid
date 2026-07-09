@@ -102,12 +102,12 @@ export function ExportModal({ onClose, onStart, onOpenSettings, project }: Props
             <div>
               <strong>Cannot export yet</strong>
               <ul>
-                {blockingIssues.map((issue, i) => (
-                  <li key={i}>{issue}</li>
+                {blockingIssues.map((issue) => (
+                  <li key={issue}>{issue}</li>
                 ))}
               </ul>
-              {deps.installHints.map((hint: InstallHint, i: number) => (
-                <code key={i} className="export-install-cmd">
+              {deps.installHints.map((hint: InstallHint) => (
+                <code key={hint.tool} className="export-install-cmd">
                   {hint.command}
                 </code>
               ))}

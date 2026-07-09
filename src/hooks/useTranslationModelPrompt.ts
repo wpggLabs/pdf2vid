@@ -16,6 +16,7 @@ export function useTranslationModelPrompt(
   const [downloading, setDownloading] = useState(false);
   const lastTriggered = useRef<string | null>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies(triggerDownload): the effect is keyed to provider/language on purpose; triggerDownload reads `downloading`, and depending on it would re-run the installed-check on every download state flip.
   useEffect(() => {
     if (translationProvider !== "marian" || language === "English (US)") {
       setNeededModelId(null);

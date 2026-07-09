@@ -69,6 +69,42 @@ export interface ProjectState {
   cancelImport: () => void;
 }
 
+function formatImportStatus(imported: number, skipped: number[]): string {
+  if (skipped.length === 0) {
+    return `${imported} pages imported`;
+  }
+  const sample = skipped.slice(0, 3).join(", ");
+  const more = skipped.length > 3 ? `, +${skipped.length - 3} more` : "";
+  return `${imported} pages imported · ${skipped.length} skipped (no text): ${sample}${more}`;
+}
+
+/**
+ * Structured import summary surfaced in the inspector right after a
+ * PDF loads. We expose both a flat string (for the status bar) and
+ * a typed record (for components that want richer UI without
+ * parsing the string).
+ */
+function buildImportSummary(result: PdfImportResult): ImportSummary {
+  const imported = result.scenes.length;
+  const skipped = result.skippedPages;
+  const needsOcr = imported === 0;
+  const translationNeeded =
+    imported > 0 &&
+    // The default project language is "English (US)" so non-English
+    // PDFs will require translation. We can't introspect the actual
+    // source language from the import result alone, but we can
+    // signal that the user should review the translation panel.
+    true;
+  return {
+    imported,
+    skipped,
+    needsOcr,
+    translationNeeded,
+    warnings: skipped.length > 0 ? skipped.length : 0,
+    status: formatImportStatus(imported, skipped),
+  };
+}
+
 /**
  * Owns the canonical Project state plus its derived active scene. Handles
  * hydration from disk, debounced auto-save, and PDF import for both
@@ -132,106 +168,81 @@ export function useProjectState(): ProjectState {
     };
   }, [project]);
 
-  function formatImportStatus(imported: number, skipped: number[]): string {
-    if (skipped.length === 0) {
-      return `${imported} pages imported`;
-    }
-    const sample = skipped.slice(0, 3).join(", ");
-    const more = skipped.length > 3 ? `, +${skipped.length - 3} more` : "";
-    return `${imported} pages imported · ${skipped.length} skipped (no text): ${sample}${more}`;
-  }
+  // Stable: only touches useState setters and pure helpers, so the import
+  // can depend on it without being recreated per render.
+  const applyImportResult = useCallback(
+    (name: string, sourceName: string, result: PdfImportResult) => {
+      setProject((current) => ({
+        ...current,
+        name,
+        sourceName,
+        scenes: result.scenes,
+        skippedPages: result.skippedPages,
+      }));
+      setActiveId(result.scenes[0].id);
+      const summary = buildImportSummary(result);
+      setImportSummary(summary);
+      setStatus(summary.status);
+    },
+    [],
+  );
 
-  /**
-   * Structured import summary surfaced in the inspector right after a
-   * PDF loads. We expose both a flat string (for the status bar) and
-   * a typed record (for components that want richer UI without
-   * parsing the string).
-   */
-  function buildImportSummary(result: PdfImportResult) {
-    const imported = result.scenes.length;
-    const skipped = result.skippedPages;
-    const needsOcr = imported === 0;
-    const translationNeeded =
-      imported > 0 &&
-      // The default project language is "English (US)" so non-English
-      // PDFs will require translation. We can't introspect the actual
-      // source language from the import result alone, but we can
-      // signal that the user should review the translation panel.
-      true;
-    return {
-      imported,
-      skipped,
-      needsOcr,
-      translationNeeded,
-      warnings: skipped.length > 0 ? skipped.length : 0,
-      status: formatImportStatus(imported, skipped),
-    };
-  }
+  const importPdf = useCallback(
+    async (file?: File) => {
+      if (!file) return;
+      importAbort.current = new AbortController();
+      setStatus("Reading PDF…");
+      setImportProgress({ page: 0, total: 0 });
+      try {
+        const result = await parsePdf(
+          { kind: "file", file },
+          (page, total) => {
+            setStatus(`Reading page ${page} of ${total}`);
+            setImportProgress({ page, total });
+          },
+          importAbort.current.signal,
+        );
+        const name = file.name.replace(/\.pdf$/i, "");
+        applyImportResult(name, file.name, result);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not read this PDF");
+      } finally {
+        setImportProgress(null);
+        importAbort.current = null;
+      }
+    },
+    [applyImportResult],
+  );
 
-  function applyImportResult(name: string, sourceName: string, result: PdfImportResult) {
-    setProject((current) => ({
-      ...current,
-      name,
-      sourceName,
-      scenes: result.scenes,
-      skippedPages: result.skippedPages,
-    }));
-    setActiveId(result.scenes[0].id);
-    const summary = buildImportSummary(result);
-    setImportSummary(summary);
-    setStatus(summary.status);
-  }
-
-  const importPdf = useCallback(async (file?: File) => {
-    if (!file) return;
-    importAbort.current = new AbortController();
-    setStatus("Reading PDF…");
-    setImportProgress({ page: 0, total: 0 });
-    try {
-      const result = await parsePdf(
-        { kind: "file", file },
-        (page, total) => {
-          setStatus(`Reading page ${page} of ${total}`);
-          setImportProgress({ page, total });
-        },
-        importAbort.current.signal,
-      );
-      const name = file.name.replace(/\.pdf$/i, "");
-      applyImportResult(name, file.name, result);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not read this PDF");
-    } finally {
-      setImportProgress(null);
-      importAbort.current = null;
-    }
-  }, []);
-
-  const importPdfFromPath = useCallback(async (path: string) => {
-    importAbort.current = new AbortController();
-    setStatus("Reading PDF…");
-    setImportProgress({ page: 0, total: 0 });
-    try {
-      const result = await parsePdf(
-        { kind: "path", path },
-        (page, total) => {
-          setStatus(`Reading page ${page} of ${total}`);
-          setImportProgress({ page, total });
-        },
-        importAbort.current.signal,
-      );
-      const name =
-        path
-          .split(/[\\/]/)
-          .pop()
-          ?.replace(/\.pdf$/i, "") ?? "Untitled";
-      applyImportResult(name, path, result);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not read this PDF");
-    } finally {
-      setImportProgress(null);
-      importAbort.current = null;
-    }
-  }, []);
+  const importPdfFromPath = useCallback(
+    async (path: string) => {
+      importAbort.current = new AbortController();
+      setStatus("Reading PDF…");
+      setImportProgress({ page: 0, total: 0 });
+      try {
+        const result = await parsePdf(
+          { kind: "path", path },
+          (page, total) => {
+            setStatus(`Reading page ${page} of ${total}`);
+            setImportProgress({ page, total });
+          },
+          importAbort.current.signal,
+        );
+        const name =
+          path
+            .split(/[\\/]/)
+            .pop()
+            ?.replace(/\.pdf$/i, "") ?? "Untitled";
+        applyImportResult(name, path, result);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Could not read this PDF");
+      } finally {
+        setImportProgress(null);
+        importAbort.current = null;
+      }
+    },
+    [applyImportResult],
+  );
 
   const updateScene = useCallback((id: string, changes: Partial<Scene>) => {
     setProject((current) => ({

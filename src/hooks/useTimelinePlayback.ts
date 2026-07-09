@@ -142,6 +142,7 @@ export function useTimelinePlayback(
     }
   }, [selectedScenes.length]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies(activeId): activeId is an intentional trigger — the tick resets whenever the active scene changes.
   useEffect(() => {
     setState((prev) => ({ ...prev, elapsedInScene: 0 }));
   }, [activeId]);

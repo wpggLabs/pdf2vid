@@ -39,6 +39,7 @@ export function PreviewModal({
 
   // Generate audio for the current scene. The sequence guard discards
   // stale responses from previous scenes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(scene.id): scene.id is an intentional trigger so switching scenes always re-synthesizes, even between scenes with identical scripts.
   useEffect(() => {
     const mySeq = ++requestSeq.current;
     setLoading(true);
@@ -60,6 +61,7 @@ export function PreviewModal({
 
   // Wire up audio element events. We rely on `canplay` to know the new
   // src is decodable, then set ready=true so Play can be enabled.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(audioUrl): audioUrl is an intentional trigger — re-check readyState after each new src is assigned.
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
@@ -96,6 +98,7 @@ export function PreviewModal({
 
   // Stop the audio when the scene changes so the previous narration
   // doesn't keep playing under a different image.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(scene.id): scene.id is an intentional trigger — pause playback on every scene switch.
   useEffect(() => {
     const el = audioRef.current;
     if (el) {

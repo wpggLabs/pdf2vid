@@ -228,8 +228,8 @@ export function ProgressModal({ jobId, onClose }: Props) {
                   <strong>Unsupported provider selected</strong>
                 </p>
                 <ul>
-                  {groupedWarnings.unsupportedProvider.slice(0, 5).map((w, i) => (
-                    <li key={i}>{w.message}</li>
+                  {groupedWarnings.unsupportedProvider.slice(0, 5).map((w) => (
+                    <li key={w.message}>{w.message}</li>
                   ))}
                 </ul>
                 {groupedWarnings.unsupportedProvider[0]?.suggestedFix && (
