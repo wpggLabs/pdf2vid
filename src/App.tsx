@@ -1,48 +1,24 @@
-import {
-  ArrowsOut,
-  Check,
-  Export,
-  FilePdf,
-  Gear,
-  List,
-  Pause,
-  Play,
-  Plus,
-  SkipBack,
-  SkipForward,
-  SpeakerHigh,
-  Trash,
-  Waveform,
-} from "@phosphor-icons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { ProviderList } from "./api";
 import { startExport as backendExport, getProviderList, getSystemStatus } from "./backend";
+import { EditorSection } from "./components/EditorSection";
 import { ExportModal } from "./components/ExportModal";
+import { Inspector } from "./components/Inspector";
 import { ModelsModal } from "./components/ModelsModal";
 import { PreviewModal } from "./components/PreviewModal";
 import { ProgressModal } from "./components/ProgressModal";
-import { ProviderField } from "./components/ProviderField";
-import { ProviderHealth } from "./components/ProviderHealth";
+import { ScenePanel } from "./components/ScenePanel";
 import { SettingsModal } from "./components/SettingsModal";
+import { TopBar } from "./components/TopBar";
 import { usePreviewVoice } from "./hooks/usePreviewVoice";
 import { useTimelinePlayback } from "./hooks/useTimelinePlayback";
 import { useTranslationModelPrompt } from "./hooks/useTranslationModelPrompt";
 import { captionLineAt, wrapCaptionLines } from "./lib/captions";
-import { voiceOptionsFor } from "./lib/voiceOptions";
 import { useProjectState } from "./state/useProjectState";
 import { useWorkspaceUi } from "./state/useWorkspaceUi";
-import type { ProviderOption, SystemStatus } from "./types";
-
-function seconds(value: number) {
-  const minutes = Math.floor(value / 60);
-  return `${String(minutes).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
-}
-
-function providerById(options: ProviderOption[], id: string) {
-  return options.find((option) => option.id === id) ?? options[0];
-}
+import type { SystemStatus } from "./types";
 
 function App() {
   const proj = useProjectState();
@@ -71,9 +47,6 @@ function App() {
   });
   const [progressJobId, setProgressJobId] = useState<string | null>(null);
 
-  const inputRef = useRef<HTMLInputElement>(null);
-  const previewRef = useRef<HTMLDivElement>(null);
-
   const duration = useMemo(
     () =>
       project.scenes
@@ -82,16 +55,19 @@ function App() {
     [project.scenes],
   );
 
-  const playback = useTimelinePlayback(project.scenes);
+  const playback = useTimelinePlayback(project.scenes, activeId, setActiveId);
   const preview = usePreviewVoice();
   const [ttsReady, setTtsReady] = useState<boolean | null>(null);
 
-  // Check whether Python + edge-tts is available on startup.
+  // Check whether Python + edge-tts is available on startup, and kick off
+  // a background OCR engine install so scanned-PDF reading works without
+  // the user installing anything manually.
   useEffect(() => {
-    import("./backend").then(({ checkTtsEngine }) => {
+    import("./backend").then(({ checkTtsEngine, ensureOcr }) => {
       checkTtsEngine()
         .then((status) => setTtsReady(status.pythonAvailable))
         .catch(() => setTtsReady(false));
+      ensureOcr().catch(() => undefined);
     });
   }, []);
 
@@ -192,27 +168,57 @@ function App() {
   const togglePlay = useCallback(() => {
     if (playback.playing) {
       playback.pause();
+      // Stop the narration audio too, otherwise the voice keeps playing
+      // after the visual timeline is paused.
+      preview.stop();
     } else {
       playback.play();
-      // Kick off audio for the currently active scene so the user
-      // actually hears something when they hit Play.
-      preview
-        .preview(project.voiceProvider, project.voice, active.script, project.voiceSpeed)
-        .catch(() => undefined);
     }
-  }, [playback, preview, project.voiceProvider, project.voice, active.script, project.voiceSpeed]);
+  }, [playback, preview]);
+
+  // While playing, follow the active scene with its narration audio so the
+  // voice advances in step with the page/caption (not just on first play).
+  // When paused, halt the audio so the transport fully stops.
+  const followedSceneId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!playback.playing) {
+      followedSceneId.current = null;
+      preview.stop();
+      return;
+    }
+    if (followedSceneId.current === active.id) return;
+    followedSceneId.current = active.id;
+    const sceneId = active.id;
+    preview
+      .preview(project.voiceProvider, project.voice, active.script, project.voiceSpeed)
+      .then((audioSeconds) => {
+        // Adopt the narration's real length as the scene duration (like
+        // the exporter does via ffprobe) so the preview timeline, captions
+        // and the final video all agree. Only update on a meaningful
+        // difference to avoid churning saves over sub-second jitter.
+        if (audioSeconds === null) return;
+        const scene = project.scenes.find((s) => s.id === sceneId);
+        if (scene && Math.abs(scene.duration - audioSeconds) > 1) {
+          updateScene(sceneId, { duration: Math.max(1, Math.ceil(audioSeconds)) });
+        }
+      })
+      .catch(() => undefined);
+  }, [
+    playback.playing,
+    active.id,
+    active.script,
+    project.voiceProvider,
+    project.voice,
+    project.voiceSpeed,
+    preview,
+    project.scenes,
+    updateScene,
+  ]);
 
   // Preview voice (active scene's script)
   const handlePreviewVoice = useCallback(() => {
     preview.preview(project.voiceProvider, project.voice, active.script, project.voiceSpeed);
   }, [preview, project.voiceProvider, project.voice, active.script, project.voiceSpeed]);
-
-  const translationProvider = providers
-    ? providerById(providers.translation, project.translationProvider)
-    : null;
-  const voiceProvider = providers ? providerById(providers.voice, project.voiceProvider) : null;
-
-  const totalDuration = duration;
 
   // Read-along preview caption: show the single line that matches the
   // current playback position (mirrors the line-by-line export) instead
@@ -225,526 +231,68 @@ function App() {
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span>pdf2</span>
-          <strong>vid</strong>
-        </div>
-        <div className="project-title">
-          <span>Projects</span>
-          <b>/</b>
-          <strong>{project.name}</strong>
-        </div>
-        <nav aria-label="Workspace">
-          <button
-            type="button"
-            className={ui.workspaceTab === "scenes" ? "nav-active" : ""}
-            onClick={() => ui.setWorkspaceTab("scenes")}
-          >
-            <List size={18} />
-            Scenes
-          </button>
-          <button
-            type="button"
-            className={ui.workspaceTab === "preview" ? "nav-active" : ""}
-            onClick={ui.handlePreviewTab}
-          >
-            <Play size={18} />
-            Preview
-          </button>
-          <button type="button" onClick={ui.openExport}>
-            <Export size={18} />
-            Export
-          </button>
-        </nav>
-        <button
-          type="button"
-          className="icon-button"
-          aria-label="Settings"
-          onClick={() => ui.setSettingsOpen(true)}
-        >
-          <Gear size={20} />
-        </button>
-      </header>
+      <TopBar
+        projectName={project.name}
+        workspaceTab={ui.workspaceTab}
+        onScenesTab={() => ui.setWorkspaceTab("scenes")}
+        onPreviewTab={ui.handlePreviewTab}
+        onExport={ui.openExport}
+        onSettings={() => ui.setSettingsOpen(true)}
+      />
 
       <section className="workspace">
-        <aside className="scene-panel">
-          <div className="panel-heading">
-            <div>
-              <span>PROJECT</span>
-              <strong>{project.sourceName}</strong>
-            </div>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={() => inputRef.current?.click()}
-              aria-label="Import PDF"
-            >
-              <Plus size={18} />
-            </button>
-          </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="application/pdf"
-            hidden
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) importPdf(file);
-            }}
-          />
-          <button type="button" className="import-button" onClick={pickAndImportPdf}>
-            <FilePdf size={20} />
-            Import PDF
-          </button>
-          {importProgress && (
-            <div className="import-progress">
-              <span>
-                Reading page {importProgress.page} of {importProgress.total}
-              </span>
-              <div className="import-progress-bar">
-                <div
-                  className="import-progress-bar-fill"
-                  style={{ width: `${(importProgress.page / importProgress.total) * 100}%` }}
-                />
-              </div>
-            </div>
-          )}
-          {importSummary.status && !importProgress && (
-            <div className="import-summary" data-testid="import-summary">
-              <strong>
-                {importSummary.imported} page{importSummary.imported === 1 ? "" : "s"} imported
-              </strong>
-              {importSummary.skipped.length > 0 && (
-                <span>
-                  {importSummary.skipped.length} skipped (no text):{" "}
-                  {importSummary.skipped.slice(0, 3).join(", ")}
-                  {importSummary.skipped.length > 3 &&
-                    `, +${importSummary.skipped.length - 3} more`}
-                </span>
-              )}
-              {importSummary.needsOcr && (
-                <span className="import-summary-warn">OCR required — no selectable text.</span>
-              )}
-              {importSummary.translationNeeded && importSummary.imported > 0 && (
-                <span className="import-summary-hint">
-                  Review translation provider in the inspector.
-                </span>
-              )}
-            </div>
-          )}
-          <div className="scene-label">
-            <span>SCENES</span>
-            <span>
-              {project.scenes.filter((scene) => scene.selected).length} / {project.scenes.length}
-            </span>
-          </div>
-          <div className="scene-list">
-            {project.scenes.map((scene, index) => (
-              <article
-                key={scene.id}
-                className={`scene-row ${scene.id === activeId ? "selected" : ""}`}
-                onClick={() => setActiveId(scene.id)}
-              >
-                <button
-                  type="button"
-                  className={`select-box ${scene.selected ? "checked" : ""}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    updateScene(scene.id, { selected: !scene.selected });
-                  }}
-                  aria-label={`Select page ${scene.page}`}
-                >
-                  {scene.selected && <Check size={12} weight="bold" />}
-                </button>
-                <div className="thumb">
-                  {scene.thumbnail ? <img src={scene.thumbnail} alt="" /> : <FilePdf size={24} />}
-                  <b>{index + 1}</b>
-                </div>
-                <div className="scene-meta">
-                  <strong>{scene.title}</strong>
-                  <span>Page {scene.page}</span>
-                  <time>{seconds(scene.duration)}</time>
-                </div>
-              </article>
-            ))}
-          </div>
-          <footer>
-            <span>Total duration</span>
-            <time>{seconds(duration)}</time>
-          </footer>
-        </aside>
+        <ScenePanel
+          sourceName={project.sourceName}
+          scenes={project.scenes}
+          activeId={activeId}
+          totalDuration={duration}
+          importProgress={importProgress}
+          importSummary={importSummary}
+          onImportFile={importPdf}
+          onPickPdf={pickAndImportPdf}
+          onSelectScene={setActiveId}
+          onToggleScene={(id, selected) => updateScene(id, { selected })}
+        />
 
-        <section className="editor" ref={previewRef as unknown as React.RefObject<HTMLElement>}>
-          <div className="preview-toolbar">
-            <select
-              value={ui.aspect}
-              onChange={(event) => ui.setAspect(event.target.value as "youtube" | "tiktok")}
-            >
-              <option value="youtube">YouTube · 1920×1080</option>
-              <option value="tiktok">TikTok · 1080×1920</option>
-            </select>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={ui.toggleFullscreen}
-              aria-label="Fullscreen"
-            >
-              <ArrowsOut size={18} />
-            </button>
-          </div>
-          <div className={`preview-stage ${ui.aspect}`}>
-            <div className="paper-preview">
-              {active.thumbnail ? (
-                <img src={active.thumbnail} alt={`PDF page ${active.page}`} />
-              ) : (
-                <div className="empty-preview">
-                  <FilePdf size={54} />
-                  <strong>Import a PDF to begin</strong>
-                </div>
-              )}
-              {previewCaption && <p>{previewCaption}</p>}
-            </div>
-          </div>
-          <div className="transport">
-            <span>{seconds(playback.totalElapsed)}</span>
-            <div className="transport-actions">
-              <button type="button" onClick={skipBack} aria-label="Previous scene">
-                <SkipBack weight="fill" />
-              </button>
-              <button
-                type="button"
-                className="play"
-                onClick={togglePlay}
-                aria-label={playback.playing ? "Pause" : "Play"}
-              >
-                {playback.playing ? <Pause weight="fill" /> : <Play weight="fill" />}
-              </button>
-              <button type="button" onClick={skipForward} aria-label="Next scene">
-                <SkipForward weight="fill" />
-              </button>
-            </div>
-            <span>{seconds(totalDuration)}</span>
-            <SpeakerHigh size={18} />
-          </div>
-          <div className="timeline-tabs">
-            <button
-              type="button"
-              className={ui.timelineTab === "timeline" ? "active" : ""}
-              onClick={() => ui.setTimelineTab("timeline")}
-            >
-              TIMELINE
-            </button>
-            <button
-              type="button"
-              className={ui.timelineTab === "subtitles" ? "active" : ""}
-              onClick={() => ui.setTimelineTab("subtitles")}
-            >
-              SUBTITLES
-            </button>
-          </div>
-          {ui.timelineTab === "timeline" ? (
-            <div className="timeline">
-              <div className="time-ruler">
-                <span>0:00</span>
-                <span>{seconds(Math.round(duration / 2))}</span>
-                <span>{seconds(duration)}</span>
-              </div>
-              <div className="clip-track">
-                {project.scenes.map((scene, index) => (
-                  <button
-                    type="button"
-                    key={scene.id}
-                    className={scene.id === activeId ? "active" : ""}
-                    style={{ flex: scene.duration }}
-                    onClick={() => setActiveId(scene.id)}
-                  >
-                    <b>{index + 1}</b>
-                    <span>{seconds(scene.duration)}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="audio-track">
-                <Waveform size={17} />
-                <div>
-                  {Array.from({ length: 58 }, (_, index) => (
-                    <i key={index} style={{ height: `${18 + ((index * 13) % 30)}%` }} />
-                  ))}
-                </div>
-              </div>
-              <div className="subtitle-track">
-                <span>CC</span>
-                {project.scenes.map((scene) => (
-                  <button
-                    type="button"
-                    key={scene.id}
-                    style={{ flex: scene.duration }}
-                    onClick={() => setActiveId(scene.id)}
-                  >
-                    {scene.script}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="subtitles-view">
-              <div className="subtitle-list">
-                {project.scenes
-                  .filter((s) => s.selected)
-                  .map((scene, i) => (
-                    <article key={scene.id} className="subtitle-row">
-                      <span className="subtitle-index">{i + 1}</span>
-                      <span className="subtitle-time">
-                        {seconds(
-                          project.scenes
-                            .filter((s) => s.selected)
-                            .slice(0, i)
-                            .reduce((sum, s) => sum + s.duration, 0),
-                        )}
-                      </span>
-                      <p>{scene.script}</p>
-                    </article>
-                  ))}
-                {project.scenes.filter((s) => s.selected).length === 0 && (
-                  <p className="subtitle-empty">Select scenes to populate subtitles.</p>
-                )}
-              </div>
-            </div>
-          )}
-          <div className="script-editor">
-            <div>
-              <span>SCENE SCRIPT</span>
-              <span>{active.script.length} / 5000</span>
-            </div>
-            <textarea
-              value={active.script}
-              onChange={(event) =>
-                updateScene(active.id, {
-                  script: event.target.value,
-                  title: event.target.value.slice(0, 42),
-                })
-              }
-            />
-            <button type="button" className="delete" onClick={() => removeScene(active.id)}>
-              <Trash size={16} />
-              Delete scene
-            </button>
-          </div>
-        </section>
+        <EditorSection
+          scenes={project.scenes}
+          active={active}
+          activeId={activeId}
+          aspect={ui.aspect}
+          timelineTab={ui.timelineTab}
+          playing={playback.playing}
+          totalElapsed={playback.totalElapsed}
+          totalDuration={duration}
+          previewCaption={previewCaption}
+          onAspectChange={ui.setAspect}
+          onTimelineTab={ui.setTimelineTab}
+          onToggleFullscreen={ui.toggleFullscreen}
+          onSelectScene={setActiveId}
+          onSkipBack={skipBack}
+          onSkipForward={skipForward}
+          onTogglePlay={togglePlay}
+          onScriptChange={(script) =>
+            updateScene(active.id, { script, title: script.slice(0, 42) })
+          }
+          onDeleteScene={() => removeScene(active.id)}
+        />
 
-        <aside className="inspector">
-          <div className="inspector-tabs">
-            <button
-              type="button"
-              className={ui.inspectorTab === "script" ? "active" : ""}
-              onClick={() => ui.setInspectorTab("script")}
-            >
-              SCRIPT
-            </button>
-            <button
-              type="button"
-              className={ui.inspectorTab === "scene" ? "active" : ""}
-              onClick={() => ui.setInspectorTab("scene")}
-            >
-              SCENE
-            </button>
-          </div>
-          {providers ? (
-            <>
-              <label>
-                OUTPUT LANGUAGE
-                <select
-                  value={project.language}
-                  onChange={(event) =>
-                    setProject((current) => ({ ...current, language: event.target.value }))
-                  }
-                >
-                  {providers.languages.map((language) => (
-                    <option key={language}>{language}</option>
-                  ))}
-                </select>
-              </label>
-              {providers.translation.length > 0 && (
-                <ProviderField
-                  title="TRANSLATION PROVIDER"
-                  value={project.translationProvider}
-                  options={providers.translation}
-                  onChange={(value) =>
-                    setProject((current) => ({ ...current, translationProvider: value }))
-                  }
-                />
-              )}
-              {translationProvider && (
-                <div className="provider-status">
-                  <Check size={14} weight="bold" />
-                  <span>
-                    {translationProvider.kind === "local"
-                      ? translationProvider.online
-                        ? "Local · uses online API"
-                        : "Runs on this device"
-                      : "Uses your account"}
-                  </span>
-                  <button type="button" onClick={() => ui.setSettingsOpen(true)}>
-                    Configure
-                  </button>
-                </div>
-              )}
-              {providers.voice.length > 0 && (
-                <ProviderField
-                  title="VOICE PROVIDER"
-                  value={project.voiceProvider}
-                  options={providers.voice}
-                  onChange={(value) =>
-                    setProject((current) => ({ ...current, voiceProvider: value }))
-                  }
-                />
-              )}
-              {voiceProvider && (
-                <div className="provider-status">
-                  <Check size={14} weight="bold" />
-                  <span>
-                    {voiceProvider.kind === "local"
-                      ? voiceProvider.online
-                        ? "Free · Microsoft Neural via Python"
-                        : "Runs on this device"
-                      : "Uses your account"}
-                  </span>
-                  <button type="button" onClick={() => ui.setSettingsOpen(true)}>
-                    Configure
-                  </button>
-                </div>
-              )}
-              <label>
-                VOICE
-                <select
-                  value={project.voice}
-                  onChange={(event) =>
-                    setProject((current) => ({ ...current, voice: event.target.value }))
-                  }
-                >
-                  {voiceOptionsFor(project)}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="preview-voice"
-                onClick={handlePreviewVoice}
-                disabled={preview.loading}
-              >
-                <Play size={15} weight="fill" />
-                {preview.loading ? "Generating…" : "Preview voice"}
-              </button>
-              {preview.error && <p className="preview-error">{preview.error}</p>}
-              <div className="slider-row">
-                <span>Speed</span>
-                <input
-                  type="range"
-                  min="75"
-                  max="125"
-                  value={project.voiceSpeed}
-                  onChange={(e) =>
-                    setProject((p) => ({ ...p, voiceSpeed: Number(e.target.value) }))
-                  }
-                />
-                <output>{(project.voiceSpeed / 100).toFixed(2)}×</output>
-              </div>
-              <div className="local-note">
-                <Check size={18} weight="fill" />
-                <div>
-                  <strong>{ttsReady === false ? "edge-tts not detected" : "edge-tts ready"}</strong>
-                  <span>
-                    {ttsReady === false
-                      ? "Install Python then: pip install edge-tts"
-                      : "Microsoft Neural voices via Python. No key required."}
-                  </span>
-                </div>
-              </div>
-              {project.translationProvider === "argos" && project.language !== "English (US)" && (
-                <div className="local-note">
-                  <Check size={18} weight="fill" />
-                  <div>
-                    <strong>Offline translation via Argos</strong>
-                    <span>
-                      Requires <code>pip install argostranslate</code>. The first render downloads a
-                      small language pack. If it isn't available, the source text is kept and a
-                      warning is shown — switch to OpenAI or Google Cloud for cloud translation.
-                    </span>
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="inspector-loading">Loading providers…</div>
-          )}
-          {ui.inspectorTab === "scene" && (
-            <div className="scene-meta-panel">
-              <label>
-                PAGE TITLE
-                <input
-                  type="text"
-                  value={active.title}
-                  onChange={(event) => updateScene(active.id, { title: event.target.value })}
-                />
-              </label>
-              <label>
-                DURATION (seconds)
-                <input
-                  type="number"
-                  min="1"
-                  value={active.duration}
-                  onChange={(event) =>
-                    updateScene(active.id, { duration: Math.max(1, Number(event.target.value)) })
-                  }
-                />
-              </label>
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={active.selected}
-                  onChange={(event) => updateScene(active.id, { selected: event.target.checked })}
-                />
-                <div>
-                  <strong>Include this scene</strong>
-                  <span>Selected scenes render in the final video</span>
-                </div>
-              </label>
-            </div>
-          )}
-          <ProviderHealth onOpenModels={() => ui.openModels()} />
-          <div className="export-section">
-            <span>EXPORT VIDEO</span>
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={project.outputYouTube}
-                onChange={(event) =>
-                  setProject((current) => ({ ...current, outputYouTube: event.target.checked }))
-                }
-              />
-              <div>
-                <strong>YouTube</strong>
-                <span>1920×1080 · H.264</span>
-              </div>
-            </label>
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={project.outputTikTok}
-                onChange={(event) =>
-                  setProject((current) => ({ ...current, outputTikTok: event.target.checked }))
-                }
-              />
-              <div>
-                <strong>TikTok</strong>
-                <span>1080×1920 · H.264</span>
-              </div>
-            </label>
-            <button type="button" className="export-primary" onClick={ui.openExport}>
-              <Export size={18} />
-              Export video
-            </button>
-          </div>
-        </aside>
+        <Inspector
+          project={project}
+          setProject={setProject}
+          active={active}
+          providers={providers}
+          inspectorTab={ui.inspectorTab}
+          ttsReady={ttsReady}
+          previewLoading={preview.loading}
+          previewError={preview.error}
+          onInspectorTab={ui.setInspectorTab}
+          onUpdateScene={updateScene}
+          onPreviewVoice={handlePreviewVoice}
+          onOpenSettings={() => ui.setSettingsOpen(true)}
+          onOpenModels={() => ui.openModels()}
+          onOpenExport={ui.openExport}
+        />
       </section>
 
       <footer className="statusbar">
