@@ -28,6 +28,11 @@ const defaultProject: Project = {
   voiceSpeed: 100,
 };
 
+export interface ImportProgress {
+  page: number;
+  total: number;
+}
+
 export interface ImportSummary {
   imported: number;
   skipped: number[];
@@ -51,7 +56,7 @@ export interface ProjectState {
   activeId: string;
   setActiveId: (id: string) => void;
   active: Scene;
-  importProgress: { page: number; total: number } | null;
+  importProgress: ImportProgress | null;
   status: string;
   setStatus: React.Dispatch<React.SetStateAction<string>>;
   /** Structured import summary, refreshed after every PDF load. */
@@ -114,11 +119,15 @@ export function useProjectState(): ProjectState {
 
   // Debounced auto-save
   useEffect(() => {
+    let mounted = true;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      saveProject(project).catch((error) => setStatus(`Save failed: ${error}`));
+      saveProject(project).catch((error) => {
+        if (mounted) setStatus(`Save failed: ${error}`);
+      });
     }, 600);
     return () => {
+      mounted = false;
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
     };
   }, [project]);

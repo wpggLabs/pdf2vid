@@ -3,118 +3,155 @@ import type { Scene } from "../types";
 
 interface PlaybackState {
   playing: boolean;
-  currentSceneIndex: number;
   elapsedInScene: number;
 }
 
+interface TimelinePlayback {
+  playing: boolean;
+  /** Index of the active scene within the selected-scenes list. */
+  currentSceneIndex: number;
+  elapsedInScene: number;
+  /** Elapsed seconds across the whole selected timeline. */
+  totalElapsed: number;
+  totalDuration: number;
+  play: () => void;
+  pause: () => void;
+  stop: () => void;
+}
+
 /**
- * Timeline playback simulation: cycles through selected scenes using a
- * timer, advances the active scene, and exposes an audio element ref so
- * callers can attach preview-voice audio for the active scene.
+ * Timeline playback driven by the single source of truth: `activeId`.
+ *
+ * The hook does not keep its own copy of "which scene is current" — it
+ * derives that from `activeId` so the preview image, caption, timeline
+ * highlight and audio all stay in lock-step with whatever the user
+ * clicked. While playing, it advances by calling `onActiveChange` with
+ * the next selected scene's id; the parent updates `activeId`, which
+ * feeds back in and keeps `currentSceneIndex` correct.
  */
-export function useTimelinePlayback(scenes: Scene[]) {
+export function useTimelinePlayback(
+  scenes: Scene[],
+  activeId: string | null,
+  onActiveChange: (sceneId: string) => void,
+): TimelinePlayback {
   const [state, setState] = useState<PlaybackState>({
     playing: false,
-    currentSceneIndex: 0,
     elapsedInScene: 0,
   });
   const timerRef = useRef<number | null>(null);
-  const selectedRef = useRef<Scene[]>([]);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => {
-    selectedRef.current = scenes.filter((s) => s.selected);
-  }, [scenes]);
+  const selectedScenes = useMemo(() => scenes.filter((s) => s.selected), [scenes]);
+  const totalDuration = selectedScenes.reduce((sum, scene) => sum + scene.duration, 0);
 
-  useEffect(() => {
-    audioRef.current = new Audio();
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = "";
-      }
-    };
-  }, []);
+  const currentSceneIndex = Math.max(
+    0,
+    selectedScenes.findIndex((s) => s.id === activeId),
+  );
 
-  const play = useCallback(() => {
-    const selected = selectedRef.current;
-    if (selected.length === 0) return;
-    setState((prev) => {
-      const startIdx = prev.currentSceneIndex >= selected.length ? 0 : prev.currentSceneIndex;
-      return { playing: true, currentSceneIndex: startIdx, elapsedInScene: 0 };
-    });
-  }, []);
+  const totalElapsed =
+    selectedScenes.slice(0, currentSceneIndex).reduce((sum, s) => sum + s.duration, 0) +
+    state.elapsedInScene;
 
-  const pause = useCallback(() => {
-    setState((prev) => ({ ...prev, playing: false }));
-    if (audioRef.current) audioRef.current.pause();
-  }, []);
-
-  const stop = useCallback(() => {
-    setState({ playing: false, currentSceneIndex: 0, elapsedInScene: 0 });
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
     }
   }, []);
 
-  // Tick the simulation forward when playing.
+  // Keep the latest values in refs so the interval closure never goes
+  // stale and never calls a parent setter from inside a setState updater.
+  const selectedRef = useRef(selectedScenes);
+  const activeIdRef = useRef(activeId);
+  const onActiveChangeRef = useRef(onActiveChange);
+  selectedRef.current = selectedScenes;
+  activeIdRef.current = activeId;
+  onActiveChangeRef.current = onActiveChange;
+
+  // Distinguishes pause (resume where you were) from stop / first play
+  // (start the document from the beginning).
+  const pausedRef = useRef(false);
+
+  const play = useCallback(() => {
+    if (selectedScenes.length === 0) return;
+    if (pausedRef.current && selectedScenes.some((s) => s.id === activeId)) {
+      // Resume after pause: stay on the current scene. The scene restarts
+      // from its beginning (elapsed 0) because the narration audio cannot
+      // resume mid-utterance — restarting keeps timer and voice in sync.
+      pausedRef.current = false;
+      setState({ playing: true, elapsedInScene: 0 });
+      return;
+    }
+    // Fresh start (or the paused scene was deselected): read the document
+    // from the first selected page.
+    pausedRef.current = false;
+    onActiveChange(selectedScenes[0].id);
+    setState({ playing: true, elapsedInScene: 0 });
+  }, [selectedScenes, activeId, onActiveChange]);
+
+  const pause = useCallback(() => {
+    pausedRef.current = true;
+    setState((prev) => ({ ...prev, playing: false }));
+  }, []);
+
+  const stop = useCallback(() => {
+    pausedRef.current = false;
+    setState({ playing: false, elapsedInScene: 0 });
+  }, []);
+
+  // Tick forward while playing. On scene boundary, advance `activeId` to
+  // the next selected scene. We drive `activeId` (not a local index) so
+  // the whole UI follows.
   useEffect(() => {
     if (!state.playing) {
-      if (timerRef.current) {
-        window.clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+      clearTimer();
       return;
     }
     const tickMs = 200;
     timerRef.current = window.setInterval(() => {
+      const selected = selectedRef.current;
+      const idx = selected.findIndex((s) => s.id === activeIdRef.current);
+      const scene = selected[idx < 0 ? 0 : idx];
+      if (!scene) {
+        setState({ playing: false, elapsedInScene: 0 });
+        return;
+      }
       setState((prev) => {
-        const selected = selectedRef.current;
-        if (selected.length === 0) return { ...prev, playing: false };
-        const current = selected[prev.currentSceneIndex];
         const nextElapsed = prev.elapsedInScene + tickMs / 1000;
-        if (nextElapsed >= current.duration) {
-          const nextIdx = prev.currentSceneIndex + 1;
+        if (nextElapsed >= scene.duration) {
+          const nextIdx = (idx < 0 ? 0 : idx) + 1;
           if (nextIdx >= selected.length) {
-            return { playing: false, currentSceneIndex: 0, elapsedInScene: 0 };
+            return { playing: false, elapsedInScene: 0 };
           }
-          return {
-            playing: true,
-            currentSceneIndex: nextIdx,
-            elapsedInScene: 0,
-          };
+          // Advance to the next scene. This updates the parent's
+          // activeId, which re-derives currentSceneIndex on re-render.
+          onActiveChangeRef.current(selected[nextIdx].id);
+          return { playing: true, elapsedInScene: 0 };
         }
         return { ...prev, elapsedInScene: nextElapsed };
       });
     }, tickMs);
-    return () => {
-      if (timerRef.current) {
-        window.clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [state.playing]);
+    return clearTimer;
+  }, [state.playing, clearTimer]);
 
-  const selectedScenes = useMemo(() => scenes.filter((s) => s.selected), [scenes]);
-  const totalDuration = selectedScenes.reduce((sum, scene) => sum + scene.duration, 0);
-  const currentElapsed =
-    selectedScenes
-      .slice(0, state.currentSceneIndex)
-      .reduce((sum, scene) => sum + scene.duration, 0) + state.elapsedInScene;
-
-  // Keep the ref in sync for the tick effect.
+  // Stop playback when there is nothing selected, and reset the tick when
+  // the active scene changes so we don't carry over stale elapsed time.
   useEffect(() => {
-    selectedRef.current = selectedScenes;
-  }, [selectedScenes]);
+    if (selectedScenes.length === 0) {
+      setState({ playing: false, elapsedInScene: 0 });
+    }
+  }, [selectedScenes.length]);
+
+  useEffect(() => {
+    setState((prev) => ({ ...prev, elapsedInScene: 0 }));
+  }, [activeId]);
 
   return {
     playing: state.playing,
-    currentSceneIndex: state.currentSceneIndex,
+    currentSceneIndex,
     elapsedInScene: state.elapsedInScene,
-    totalElapsed: currentElapsed,
+    totalElapsed,
     totalDuration,
-    audioRef,
     play,
     pause,
     stop,
