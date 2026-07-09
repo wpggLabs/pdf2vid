@@ -10,6 +10,7 @@ use crate::state::AppState;
 use crate::types::{ExportRequest, ModelInfo, Project, ProviderList, SystemStatus};
 use base64::Engine as _;
 use std::path::PathBuf;
+use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager};
 
 fn project_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -106,6 +107,7 @@ pub struct DependencyStatus {
     pub python_path: Option<String>,
     pub edge_tts: bool,
     pub edge_tts_version: Option<String>,
+    pub ocr_ready: bool,
     pub platform: String,
     pub install_hints: Vec<InstallHint>,
 }
@@ -119,7 +121,7 @@ pub struct InstallHint {
 }
 
 #[tauri::command]
-pub fn dependency_status() -> DependencyStatus {
+pub fn dependency_status(app: AppHandle) -> DependencyStatus {
     let ffmpeg_path = crate::ffmpeg::ffmpeg_path();
     let ffprobe_path = crate::ffmpeg::ffprobe_path();
     let python = crate::edgetts::detect_python_with_edge_tts();
@@ -191,6 +193,9 @@ pub fn dependency_status() -> DependencyStatus {
         python: python_ok,
         python_path: python.as_ref().map(|p| p.to_string_lossy().to_string()),
         edge_tts: python_ok,
+        ocr_ready: ocr_venv_dir(&app)
+            .map(|venv| crate::ocr::ocr_available(&venv))
+            .unwrap_or(false),
         edge_tts_version,
         platform: std::env::consts::OS.to_string(),
         install_hints: hints,
@@ -312,13 +317,75 @@ pub fn is_model_installed(app: AppHandle, model_id: String) -> bool {
     crate::models::is_model_installed(&app, &model_id)
 }
 
+/// OCR a page image (base64 PNG data URL) and return the recognized text.
+/// Used as a fallback when a PDF page has no selectable text (scanned PDFs)
+/// so the page can still be narrated instead of being skipped.
+///
+/// Async + `spawn_blocking`: sync Tauri commands run on the main thread,
+/// and OCR shells out to Python for seconds at a time — doing that on the
+/// main thread would freeze the whole UI.
+#[tauri::command]
+pub async fn ocr_image(app: AppHandle, data_url: String) -> Result<String, String> {
+    let venv = ocr_venv_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || crate::ocr::ocr_png_data_url(&venv, &data_url))
+        .await
+        .map_err(|e| format!("OCR task failed: {e}"))?
+}
+
+/// Install the OCR engine in the background if it isn't already present.
+/// Returns whether OCR is ready after the attempt. Called at startup so
+/// scanned-PDF reading works without the user installing anything.
+///
+/// Async + `spawn_blocking` for the same reason as [`ocr_image`]: the
+/// first-time pip install downloads hundreds of MB and must never run on
+/// the main thread.
+#[tauri::command]
+pub async fn ensure_ocr(app: AppHandle) -> Result<bool, String> {
+    let venv = ocr_venv_dir(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::ocr::ensure_ocr_installed(&venv);
+        crate::ocr::ocr_available(&venv)
+    })
+    .await
+    .map_err(|e| format!("OCR setup task failed: {e}"))
+}
+
+/// Dedicated venv for the OCR engine, under the app's data directory —
+/// never the user's global Python environment.
+fn ocr_venv_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let base = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Could not resolve app data dir: {e}"))?;
+    Ok(base.join("ocr-venv"))
+}
+
 /// Read a PDF file from disk and return its bytes. Frontend uses this for
 /// large PDFs that would be slow or memory-heavy to load via the browser
 /// file input.
+///
+/// Defense-in-depth: this is a Tauri command reachable from the webview, so
+/// we restrict it to `.pdf` files and cap the size to avoid an arbitrary-file
+/// read or memory-exhaustion DoS.
 #[tauri::command]
-pub fn read_pdf_file(path: String) -> Result<Vec<u8>, String> {
+pub fn read_pdf_file(path: String) -> Result<Response, String> {
+    let normalized = std::path::Path::new(&path);
+    match normalized.extension().and_then(|e| e.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("pdf") => {}
+        _ => return Err("Only .pdf files can be read".into()),
+    }
+
+    let meta = std::fs::metadata(&path).map_err(|e| format!("Could not access {path}: {e}"))?;
+    const MAX_BYTES: u64 = 200 * 1024 * 1024;
+    if meta.len() > MAX_BYTES {
+        return Err(format!(
+            "PDF is too large ({} MB, limit is 200 MB)",
+            meta.len() / (1024 * 1024)
+        ));
+    }
+
     let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
-    Ok(bytes)
+    Ok(Response::new(bytes))
 }
 
 #[tauri::command]
@@ -523,6 +590,15 @@ pub async fn start_export(
     state: tauri::State<'_, AppState>,
     request: ExportRequest,
 ) -> Result<crate::types::ExportComplete, String> {
+    // Only one export may run at a time. Overlapping exports would write to
+    // the same cache/output directories and corrupt each other. The caller
+    // must cancel the in-flight export first.
+    {
+        let active = state.active_job.lock().await;
+        if active.is_some() {
+            return Err("An export is already running; cancel it before starting a new one".into());
+        }
+    }
     render::run_export(app, state, request).await
 }
 

@@ -116,8 +116,16 @@ export function isModelInstalled(modelId: string): Promise<boolean> {
   return invoke("is_model_installed", { modelId });
 }
 
-export function readPdfFile(path: string): Promise<number[]> {
-  return invoke<number[]>("read_pdf_file", { path });
+export function readPdfFile(path: string): Promise<Uint8Array> {
+  return invoke<Uint8Array>("read_pdf_file", { path });
+}
+
+export function ocrImage(dataUrl: string): Promise<string> {
+  return invoke<string>("ocr_image", { dataUrl });
+}
+
+export function ensureOcr(): Promise<boolean> {
+  return invoke<boolean>("ensure_ocr");
 }
 
 export interface TtsEngineStatus {
@@ -144,6 +152,7 @@ export interface DependencyStatus {
   pythonPath: string | null;
   edgeTts: boolean;
   edgeTtsVersion: string | null;
+  ocrReady: boolean;
   platform: string;
   installHints: InstallHint[];
 }

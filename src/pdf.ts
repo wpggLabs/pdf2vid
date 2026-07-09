@@ -1,19 +1,9 @@
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { readPdfFile } from "./backend";
+import { ocrImage, readPdfFile } from "./backend";
 import type { Scene } from "./types";
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
-
-function sentence(text: string) {
-  const cleaned = text.replace(/\s+/g, " ").trim();
-  return (
-    cleaned
-      .match(/[^.!?。！？]+[.!?。！？]?/g)
-      ?.map((item) => item.trim())
-      .filter(Boolean) ?? []
-  );
-}
 
 export type PdfSource = { kind: "file"; file: File } | { kind: "path"; path: string };
 
@@ -118,7 +108,18 @@ async function extractScenes(
     onProgress?.(index, document.numPages);
 
     const page = await document.getPage(index);
-    const text = await extractPageText(page);
+    let text = await extractPageText(page);
+
+    // Image-only / scanned pages have no selectable text. Attempt OCR so
+    // the page can still be narrated instead of being skipped. If OCR is
+    // unavailable the page falls through to the skipped list.
+    if (!text) {
+      const png = await renderPagePng(page).catch(() => "");
+      if (png) {
+        const ocr = await ocrImage(png).catch(() => "");
+        if (ocr.trim()) text = ocr;
+      }
+    }
 
     if (!text) {
       // Skip this page; remember it for the status banner.
@@ -127,7 +128,10 @@ async function extractScenes(
       continue;
     }
 
-    const script = sentence(text).slice(0, 3).join(" ") || text;
+    // Use the full page text as the scene script so the editor preview,
+    // the narration (TTS) and the exported captions all cover the entire
+    // page rather than just the first few sentences.
+    const script = text;
     const thumbnail = await renderPageThumbnail(page).catch((err) => {
       // Thumbnail rendering is best-effort. We never want it to fail
       // the whole import — the text content is the primary artifact.
@@ -205,4 +209,23 @@ export async function renderPageThumbnail(page: PdfPage): Promise<string> {
   // Near-lossless JPEG keeps text edges crisp while staying far smaller
   // than PNG for a full-colour page.
   return canvas.toDataURL("image/jpeg", 0.95);
+}
+
+/**
+ * Render a page to a PNG data URL for OCR. PNG (not JPEG) avoids lossy
+ * artifacts that would hurt text recognition. Returns an empty string if
+ * rendering fails — the caller then skips the page.
+ */
+export async function renderPagePng(page: PdfPage): Promise<string> {
+  const base = page.getViewport({ scale: 1 });
+  // ~2000px long edge is plenty for OCR and keeps the payload small.
+  const scale = Math.min(3, 2000 / Math.max(base.width, base.height));
+  const viewport = page.getViewport({ scale });
+  const canvas = window.document.createElement("canvas");
+  canvas.width = Math.round(viewport.width);
+  canvas.height = Math.round(viewport.height);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+  await page.render({ canvas, canvasContext: ctx, viewport }).promise;
+  return canvas.toDataURL("image/png");
 }

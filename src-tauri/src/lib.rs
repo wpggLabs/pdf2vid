@@ -7,6 +7,7 @@ pub mod ffmpeg;
 pub mod font;
 pub mod kokoro;
 pub mod models;
+pub mod ocr;
 pub mod providers;
 pub mod render;
 pub mod state;
@@ -40,6 +41,8 @@ pub fn run() {
             commands::delete_model,
             commands::translate_text,
             commands::preview_voice,
+            commands::ocr_image,
+            commands::ensure_ocr,
             commands::validate_export,
             commands::start_export,
             commands::cancel_export,
