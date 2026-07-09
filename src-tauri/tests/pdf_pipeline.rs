@@ -504,7 +504,17 @@ fn render_project_to_video(
     h: u32,
     aspect_label: &str,
 ) -> Result<RenderReport, String> {
-    let work = std::env::temp_dir().join(format!("pdf2vid-pdf-render-{aspect_label}"));
+    // The work dir must be unique per test invocation: tests run in
+    // parallel threads, and two tests sharing a dir (e.g. both labelled
+    // "youtube") would remove_dir_all each other's inputs mid-render.
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let work = std::env::temp_dir().join(format!(
+        "pdf2vid-pdf-render-{aspect_label}-{}-{unique}",
+        project.name
+    ));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| format!("mkdir: {e}"))?;
 
@@ -683,10 +693,12 @@ fn run_ffmpeg(ffmpeg: &Path, args: &[String]) -> Result<(), String> {
         .map_err(|e| format!("spawn ffmpeg: {e}"))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
+        // The banner is at the top of stderr; the real error is near the
+        // end. Show the tail so CI logs reveal the actual cause.
         return Err(format!(
             "ffmpeg failed (exit {:?}): {}",
             out.status.code(),
-            first_lines(&stderr, 5)
+            last_lines(&stderr, 12)
         ));
     }
     Ok(())
@@ -711,6 +723,8 @@ fn run_ffprobe(ffprobe: &Path, path: &Path) -> FfprobeResult {
     serde_json::from_slice(&raw.stdout).expect("ffprobe json")
 }
 
-fn first_lines(text: &str, n: usize) -> String {
-    text.lines().take(n).collect::<Vec<_>>().join(" | ")
+fn last_lines(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(n);
+    lines[start..].join(" | ")
 }

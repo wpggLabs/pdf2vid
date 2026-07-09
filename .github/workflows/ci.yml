@@ -48,7 +48,12 @@ jobs:
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
       - name: Install FFmpeg (integration tests)
+        # setup-ffmpeg only ships x64 builds, so arm64 macOS uses Homebrew.
+        if: runner.os != 'macOS'
         uses: FedericoCarboni/setup-ffmpeg@v3
+      - name: Install FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
       - name: Integration tests (real PDF fixtures + FFmpeg render)
         # The pipeline tests are #[ignore]d so local `cargo test` stays
         # fast; CI opts in with FFmpeg installed. Tests that need deps CI

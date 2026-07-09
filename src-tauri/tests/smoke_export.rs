@@ -318,10 +318,12 @@ fn run_ffmpeg(ffmpeg: &Path, args: &[String]) -> Result<(), String> {
         .map_err(|e| format!("spawn ffmpeg: {e}"))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
+        // The banner is at the top of stderr; the real error is near the
+        // end. Show the tail so CI logs reveal the actual cause.
         return Err(format!(
             "ffmpeg failed (exit {:?}): {}",
             out.status.code(),
-            first_lines(&stderr, 5)
+            last_lines(&stderr, 12)
         ));
     }
     Ok(())
@@ -405,8 +407,10 @@ fn probe(ffprobe: &Path, path: &Path, want_w: u32, want_h: u32) -> Result<Stream
     })
 }
 
-fn first_lines(text: &str, n: usize) -> String {
-    text.lines().take(n).collect::<Vec<_>>().join(" | ")
+fn last_lines(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(n);
+    lines[start..].join(" | ")
 }
 
 #[test]
