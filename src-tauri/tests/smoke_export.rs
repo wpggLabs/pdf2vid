@@ -419,7 +419,14 @@ fn font_discovery_returns_structured_shape() {
     std::fs::create_dir_all(&work).unwrap();
     let r: FontResolution = resolve_font(&work);
     if let Some(p) = r.render_path.as_deref() {
-        assert!(!p.contains(':'), "render_path must be colon-free: {p}");
+        // The staged font is always the safe `font.ttf` filename; the
+        // enclosing work_dir may contain a `:` (e.g. `C:\...` on Windows)
+        // but `build_ffmpeg_args` escapes it via `escape_fontfile_for_filter`.
+        assert_eq!(
+            std::path::Path::new(p).file_name().and_then(|n| n.to_str()),
+            Some("font.ttf"),
+            "render_path should end in font.ttf: {p}"
+        );
     }
     if r.found {
         assert_eq!(r.render_kind, FontRenderKind::Workdir);

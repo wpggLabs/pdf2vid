@@ -338,6 +338,9 @@ async fn run_export_inner(
         let cues = match result {
             Ok(cues) => cues,
             Err(e) => {
+                // Voice synthesis failed (missing engine, API key, network).
+                // Instead of aborting the whole export, fall back to a silent
+                // audio track so the video still renders; surface a warning.
                 warnings.push(
                     ProjectWarning::error(
                         WarningCode::VoiceSynthesisFailed,
@@ -346,10 +349,17 @@ async fn run_export_inner(
                     .with_scene(scene.id.clone(), scene.page)
                     .with_detail(e.clone())
                     .with_fix(
-                        "Check edge-tts / API key in Settings, or pick a different voice provider.",
+                        "Check edge-tts / API key in Settings, or pick a different voice provider. \
+                         Rendering continues with silent audio for this scene.",
                     ),
                 );
-                return Err(e);
+                let silent_secs = scene.duration.max(1) as f64;
+                if let Err(si) = crate::ffmpeg::generate_silence(silent_secs, &audio_path) {
+                    return Err(format!(
+                        "Voice synthesis failed and silent fallback also failed: {si}"
+                    ));
+                }
+                Vec::new()
             }
         };
         if !cues.is_empty() {
@@ -829,7 +839,7 @@ async fn compose_video(
 
     if !status.success() {
         let stderr = String::from_utf8_lossy(&stderr_bytes);
-        return Err(format!("FFmpeg failed: {}", first_lines(&stderr, 5)));
+        return Err(format!("FFmpeg failed: {}", ffmpeg_error_summary(&stderr)));
     }
     Ok(())
 }
@@ -1005,8 +1015,42 @@ fn sanitize_ffmpeg_drawtext(text: &str) -> String {
         .replace('%', "\\%")
 }
 
-fn first_lines(text: &str, n: usize) -> String {
-    text.lines().take(n).collect::<Vec<_>>().join(" | ")
+/// Pull the *actionable* part of an FFmpeg failure out of its stderr.
+///
+/// FFmpeg always prints a long version/config banner first, so taking the
+/// first N lines just returns that banner and hides the real cause.
+/// Instead we prefer lines that look like errors/warnings and fall back to
+/// the tail of the output.
+fn ffmpeg_error_summary(stderr: &str) -> String {
+    let lines: Vec<&str> = stderr.lines().collect();
+    let errors: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|l| {
+            let t = l.trim();
+            t.contains("Error")
+                || t.contains("Invalid")
+                || t.contains("Unable")
+                || t.contains("Cannot")
+                || t.contains("No such")
+                || t.contains("Unrecognized")
+                || t.contains("could not")
+                || t.contains("Failed")
+        })
+        .collect();
+    if !errors.is_empty() {
+        return errors.join(" | ");
+    }
+    // No explicit error line — return the last few lines (the banner is at
+    // the top, the real message is usually near the end).
+    lines
+        .iter()
+        .rev()
+        .take(3)
+        .rev()
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" | ")
 }
 
 fn is_default_translator(project: &Project) -> bool {

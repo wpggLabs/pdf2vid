@@ -279,6 +279,20 @@ pub async fn download_model(
                 },
             );
         }
+
+        // Verify integrity when the registry ships a hash. This is a no-op
+        // while `spec.sha256` is empty, and an active guard against corrupt
+        // or tampered downloads otherwise.
+        if !spec.sha256.is_empty() {
+            let actual = hash_file(&target).map_err(|e| e.to_string())?;
+            if actual != spec.sha256 {
+                let _ = std::fs::remove_file(&target);
+                return Err(format!(
+                    "Checksum mismatch for {file}: expected {}, got {actual}",
+                    spec.sha256
+                ));
+            }
+        }
     }
 
     // Mark installed

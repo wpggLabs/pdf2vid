@@ -59,7 +59,19 @@ pub fn run_with_progress(
         let mut buf = [0u8; 4096];
         let mut segment = String::new();
         loop {
-            let n = stderr.read(&mut buf)?;
+            let n = match stderr.read(&mut buf) {
+                Ok(n) => n,
+                Err(e) => {
+                    // Don't leak the child (and the blocked stdout drain
+                    // thread) on a read error — terminate it and clean up.
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    if let Some(h) = stdout_handle {
+                        let _ = h.join();
+                    }
+                    return Err(e);
+                }
+            };
             if n == 0 {
                 break;
             }

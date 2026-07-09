@@ -72,9 +72,13 @@ pub fn resolve_font(work_dir: &Path) -> FontResolution {
                 return FontResolution {
                     found: true,
                     source_path: Some(candidate.clone()),
-                    // FFmpeg filter graphs choke on ':' in Windows drive paths
-                    // (C:\...), so we always provide a colon-free render_path.
-                    render_path: Some(staged.replace(':', "")),
+                    // The staged path is always `font.ttf` inside work_dir, but
+                    // work_dir itself (e.g. `C:\Users\...` on Windows) may
+                    // contain a `:`. We keep the real path here — `build_ffmpeg_args`
+                    // runs it through `escape_fontfile_for_filter`, which escapes
+                    // `:` to `\:` so FFmpeg's filter parser accepts it. Stripping
+                    // the colon would corrupt the path and break the export.
+                    render_path: Some(staged),
                     render_kind: FontRenderKind::Workdir,
                     message: format!(
                         "Using font {}",

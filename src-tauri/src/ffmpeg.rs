@@ -80,6 +80,42 @@ pub fn ensure_ffprobe_or_error() -> Result<PathBuf, String> {
     ffprobe_path().ok_or_else(|| "FFprobe is not installed.".to_string())
 }
 
+/// Generate a silent MP3 of `seconds` length at the given output path.
+/// Used as a fallback when voice synthesis fails so the export can still
+/// produce a video (with silent audio) instead of aborting entirely.
+pub fn generate_silence(seconds: f64, output: &std::path::Path) -> Result<(), String> {
+    let ffmpeg = ensure_ffmpeg_or_error()?;
+    let mut cmd = std::process::Command::new(ffmpeg);
+    cmd.args([
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=r=44100:cl=mono",
+        "-t",
+        &format!("{seconds:.2}"),
+        "-c:a",
+        "libmp3lame",
+        "-q:a",
+        "4",
+    ]);
+    cmd.arg(output);
+    crate::subprocess::hide_window(&mut cmd);
+    let out = cmd
+        .output()
+        .map_err(|e| format!("Failed to generate silent audio: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "Silent audio generation failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .last()
+                .unwrap_or("unknown error")
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Aspect {
     Youtube,
