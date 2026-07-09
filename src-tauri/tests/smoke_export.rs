@@ -145,9 +145,17 @@ fn run_export_smoke() -> Result<SmokeReport, String> {
 
     let font_resolution = resolve_font(&work_dir);
     let font_path = font_resolution.render_path.clone();
-    let font_for_ffmpeg = font_path
-        .as_deref()
-        .map(pdf2vid_lib::font::escape_fontfile_for_filter);
+    // Mirror production: captions need both a font and an FFmpeg build
+    // that ships the drawtext filter (some static/Homebrew builds don't).
+    let captions_supported = ffmpeg_supports_drawtext(&ffmpeg);
+    let font_for_ffmpeg = if captions_supported {
+        font_path
+            .as_deref()
+            .map(pdf2vid_lib::font::escape_fontfile_for_filter)
+    } else {
+        eprintln!("note: this FFmpeg build lacks drawtext; rendering without captions");
+        None
+    };
 
     // Generate placeholder visuals + silent audio.
     let mut visual_paths: Vec<PathBuf> = Vec::new();
@@ -199,6 +207,7 @@ fn run_export_smoke() -> Result<SmokeReport, String> {
         &audio_paths,
         1920,
         1080,
+        captions_supported,
     );
     let mut args_y = build_ffmpeg_args(
         &inputs_y,
@@ -216,6 +225,7 @@ fn run_export_smoke() -> Result<SmokeReport, String> {
         &audio_paths,
         1080,
         1920,
+        captions_supported,
     );
     let mut args_t = build_ffmpeg_args(
         &inputs_t,
@@ -245,6 +255,7 @@ fn build_filter(
     audios: &[PathBuf],
     w: u32,
     h: u32,
+    with_captions: bool,
 ) -> (Vec<String>, String) {
     let mut inputs: Vec<String> = Vec::new();
     let mut filter = String::new();
@@ -259,8 +270,15 @@ fn build_filter(
         let seconds = (*dur).max(1.0) as u32;
         let script = format!("Page {}", i + 1);
         let safe_script = sanitize_drawtext(&script);
+        let caption_clause = if with_captions {
+            format!(
+                ",drawtext=text='{safe_script}':fontcolor=white:fontsize=42:box=1:boxcolor=black@0.55:boxborderw=14:x=(w-text_w)/2:y=h-80"
+            )
+        } else {
+            String::new()
+        };
         filter.push_str(&format!(
-            "[{v_idx}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,zoompan=z='min(zoom+0.0008,1.15)':d={seconds}*25:s={w}x{h},drawtext=text='{safe_script}':fontcolor=white:fontsize=42:box=1:boxcolor=black@0.55:boxborderw=14:x=(w-text_w)/2:y=h-80[v{i}];",
+            "[{v_idx}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,zoompan=z='min(zoom+0.0008,1.15)':d={seconds}*25:s={w}x{h}{caption_clause}[v{i}];",
         ));
         filter.push_str(&format!("[{a_idx}:a]aresample=44100[a{i}];"));
         audio_inputs.push(format!("[v{i}][a{i}]"));
@@ -286,6 +304,16 @@ fn sanitize_drawtext(text: &str) -> String {
         .replace(':', "\\:")
         .replace('\'', "")
         .replace('%', "\\%")
+}
+
+/// Whether this FFmpeg build ships the `drawtext` filter (static builds
+/// without libharfbuzz and some Homebrew builds omit it).
+fn ffmpeg_supports_drawtext(ffmpeg: &Path) -> bool {
+    Command::new(ffmpeg)
+        .args(["-hide_banner", "-filters"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(" drawtext "))
+        .unwrap_or(false)
 }
 
 fn locate_tool(name: &str, env_var: &str) -> Result<PathBuf, String> {

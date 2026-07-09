@@ -668,11 +668,13 @@ async fn compose_video(
     let mut filter = String::new();
     let mut audio_inputs: Vec<String> = Vec::new();
 
-    // When no font is available we strip drawtext from each scene
-    // clause (so the encode still succeeds) and record one
-    // `RenderFallback` warning per export. The frontend shows this
-    // alongside the structured warnings array.
-    let drawtext_available = font.found && font.render_path.is_some();
+    // When no font is available — or the FFmpeg build itself lacks the
+    // drawtext filter — we strip drawtext from each scene clause (so the
+    // encode still succeeds) and record one `RenderFallback` warning per
+    // export. The frontend shows this alongside the structured warnings
+    // array.
+    let drawtext_available =
+        font.found && font.render_path.is_some() && crate::ffmpeg::supports_drawtext();
 
     for (i, scene) in scenes.iter().enumerate() {
         if cancel.load(Ordering::SeqCst) {
@@ -754,17 +756,25 @@ async fn compose_video(
             .iter()
             .any(|w| matches!(w.code, WarningCode::RenderFallback))
         {
-            warnings.push(
-                ProjectWarning::warning(
-                    WarningCode::RenderFallback,
-                    "No drawtext font found. Videos will render without on-screen narration.",
+            let (message, detail, fix) = if !crate::ffmpeg::supports_drawtext() {
+                (
+                    "This FFmpeg build lacks the drawtext filter. Videos will render without on-screen captions.",
+                    "FFmpeg was built without libfreetype/libharfbuzz support.".to_string(),
+                    "Install a full FFmpeg build (with drawtext) and re-export.".to_string(),
                 )
-                .with_detail(font.message.clone())
-                .with_fix(
+            } else {
+                (
+                    "No drawtext font found. Videos will render without on-screen narration.",
+                    font.message.clone(),
                     font.install_hint
                         .clone()
                         .unwrap_or_else(|| "Install a TrueType font and re-export.".into()),
-                ),
+                )
+            };
+            warnings.push(
+                ProjectWarning::warning(WarningCode::RenderFallback, message)
+                    .with_detail(detail)
+                    .with_fix(fix),
             );
         }
     }

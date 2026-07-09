@@ -116,6 +116,27 @@ pub fn generate_silence(seconds: f64, output: &std::path::Path) -> Result<(), St
     Ok(())
 }
 
+/// True when the resolved FFmpeg build ships the `drawtext` filter.
+/// Not all builds do — e.g. static builds without libharfbuzz, or
+/// Homebrew builds without freetype. When it's missing, captions must
+/// be skipped (like the missing-font fallback) instead of failing the
+/// whole export with "No such filter". Cached per process.
+pub fn supports_drawtext() -> bool {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<bool> = OnceLock::new();
+    *CACHE.get_or_init(|| {
+        let Ok(ffmpeg) = ensure_ffmpeg_or_error() else {
+            return false;
+        };
+        let mut cmd = std::process::Command::new(ffmpeg);
+        cmd.args(["-hide_banner", "-filters"]);
+        crate::subprocess::hide_window(&mut cmd);
+        cmd.output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains(" drawtext "))
+            .unwrap_or(false)
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Aspect {
     Youtube,
