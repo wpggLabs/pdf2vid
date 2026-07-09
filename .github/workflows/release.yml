@@ -10,9 +10,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-latest is Apple Silicon; macos-13 is Intel. fail-fast is
-        # off, so if one platform's FFmpeg fetch fails the others still ship.
-        platform: [windows-latest, macos-latest, macos-13, ubuntu-22.04]
+        # macos-latest is Apple Silicon, which covers modern Macs. The Intel
+        # runner (macos-13) is being retired by GitHub and frequently fails
+        # to allocate, so it's intentionally omitted.
+        platform: [windows-latest, macos-latest, ubuntu-22.04]
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4

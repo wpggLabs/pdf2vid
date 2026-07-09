@@ -57,7 +57,7 @@ Grab the latest installer for your platform from the
 | Platform | File |
 |---|---|
 | Windows | `.msi` / `.exe` (NSIS) |
-| macOS | `.dmg` (Apple Silicon + Intel) |
+| macOS | `.dmg` (Apple Silicon) |
 | Linux | `.AppImage` / `.deb` |
 
 New releases are built automatically for all three platforms whenever a
