@@ -18,10 +18,6 @@ __pycache__/
 .agents/
 .codex/
 .claude/
-CLAUDE.md
-AGENTS.md
-agents.md
-claude-audit.md
 test-output.txt
 src-tauri/target/
 *_videos/

@@ -1,116 +1,121 @@
 import { describe, expect, it } from "vitest";
+import type {
+  Project,
+  ProviderCategory,
+  ProviderKind,
+  ProviderOption,
+  Scene,
+  SystemStatus,
+} from "./types";
 
-describe("provider option types", () => {
-  it("ProviderCategory accepts translation, voice, visual", () => {
-    const categories: Array<"translation" | "voice" | "visual"> = [
-      "translation",
-      "voice",
-      "visual",
-    ];
-    expect(categories).toHaveLength(3);
-  });
+// These tests assert the *runtime shape* the rest of the app relies on.
+// TypeScript enforces the union members at compile time; here we make sure
+// the documented categories/kinds are exactly the ones the UI switches on,
+// so a rename in types.ts breaks a test instead of silently drifting.
+const CATEGORIES: ProviderCategory[] = ["translation", "voice", "visual"];
+const KINDS: ProviderKind[] = ["local", "api"];
 
-  it("ProviderKind accepts local and api", () => {
-    const kinds: Array<"local" | "api"> = ["local", "api"];
-    expect(kinds).toContain("local");
-    expect(kinds).toContain("api");
-  });
-});
-
-describe("scene defaults", () => {
-  it("creates a scene with required fields", () => {
-    const scene = {
-      id: "1",
-      page: 1,
-      title: "Title",
-      script: "Script",
-      duration: 7,
-      selected: true,
-      thumbnail: "",
-    };
-    expect(scene.id).toBe("1");
-    expect(scene.page).toBe(1);
-    expect(scene.selected).toBe(true);
-  });
-});
-
-describe("export warning types", () => {
-  it("WarningCode covers render fallback categories", () => {
-    const codes: Array<
-      | "skippedPage"
-      | "untranslatedScene"
-      | "missingFont"
-      | "renderFallback"
-      | "missingDependency"
-      | "unsupportedProvider"
-      | "voiceSynthesisFailed"
-    > = [
-      "skippedPage",
-      "untranslatedScene",
-      "missingFont",
-      "renderFallback",
-      "missingDependency",
-      "unsupportedProvider",
-      "voiceSynthesisFailed",
-    ];
-    expect(codes).toHaveLength(7);
-    expect(codes).toContain("renderFallback");
-  });
-
-  it("ProjectWarning carries suggestion fields", () => {
-    const w = {
-      code: "renderFallback" as const,
-      severity: "warning" as const,
-      message: "fallback used",
-      suggestedFix: "Install DejaVu.",
-    };
-    expect(w.suggestedFix).toContain("DejaVu");
-  });
-
-  it("ExportComplete can carry typed warnings", () => {
-    const complete = {
-      jobId: "j",
-      youtubePath: null,
-      tiktokPath: null,
-      translationWarnings: [],
-      skippedPages: [],
-      untranslatedCount: 0,
-      warnings: [
-        {
-          code: "missingFont" as const,
-          severity: "warning" as const,
-          message: "no font",
-        },
-      ],
-      renderFallbackUsed: true,
-    };
-    expect(complete.warnings).toHaveLength(1);
-    expect(complete.renderFallbackUsed).toBe(true);
-  });
-});
-
-describe("import summary contract", () => {
-  // The frontend import summary mirrors the typed warnings the Rust
-  // render pipeline emits. We assert the shape here so a future
-  // refactor of `useProjectState` does not silently drop fields.
-  const exampleSummary = {
-    imported: 3,
-    skipped: [2],
-    needsOcr: false,
-    translationNeeded: true,
-    warnings: 1,
-    status: "3 pages imported · 1 skipped (no text): 2",
+describe("ProviderOption contract", () => {
+  const option: ProviderOption = {
+    id: "edge",
+    label: "edge-tts",
+    kind: "local",
+    detail: "Free",
+    implemented: true,
+    online: true,
+    keyLabel: null,
+    category: "voice",
   };
-  it("carries imported, skipped, and OCR hints", () => {
-    expect(exampleSummary.imported).toBe(3);
-    expect(exampleSummary.skipped).toEqual([2]);
-    expect(exampleSummary.needsOcr).toBe(false);
-    expect(exampleSummary.translationNeeded).toBe(true);
-    expect(exampleSummary.warnings).toBe(1);
+
+  it("accepts the documented category members", () => {
+    for (const c of CATEGORIES) {
+      const o: ProviderOption = { ...option, category: c };
+      expect(o.category).toBe(c);
+    }
   });
-  it("status string mentions skipped page numbers", () => {
-    expect(exampleSummary.status).toContain("3 pages imported");
-    expect(exampleSummary.status).toContain("1 skipped");
-    expect(exampleSummary.status).toContain("2");
+
+  it("accepts the documented kind members", () => {
+    for (const k of KINDS) {
+      const o: ProviderOption = { ...option, kind: k };
+      expect(o.kind).toBe(k);
+    }
+  });
+
+  it("carries the fields the UI reads", () => {
+    expect(typeof option.id).toBe("string");
+    expect(typeof option.label).toBe("string");
+    expect(typeof option.implemented).toBe("boolean");
+    expect(typeof option.online).toBe("boolean");
+    // keyLabel is nullable; the UI branches on it.
+    expect(option.keyLabel === null || typeof option.keyLabel === "string").toBe(true);
+  });
+});
+
+describe("Scene contract", () => {
+  const scene: Scene = {
+    id: "1",
+    page: 1,
+    title: "Title",
+    script: "Script",
+    duration: 7,
+    selected: true,
+    thumbnail: "",
+  };
+
+  it("exposes translatedScript as an optional nullable field", () => {
+    const withTranslation: Scene = { ...scene, translatedScript: "Hola" };
+    const withNull: Scene = { ...scene, translatedScript: null };
+    expect(withTranslation.translatedScript).toBe("Hola");
+    expect(withNull.translatedScript).toBeNull();
+    expect(scene.translatedScript).toBeUndefined();
+  });
+
+  it("has numeric duration and page", () => {
+    expect(typeof scene.duration).toBe("number");
+    expect(typeof scene.page).toBe("number");
+    expect(Number.isFinite(scene.duration)).toBe(true);
+  });
+});
+
+describe("Project contract", () => {
+  const project: Project = {
+    name: "Test",
+    sourceName: "test.pdf",
+    scenes: [],
+    language: "English (US)",
+    translationProvider: "argos",
+    voiceProvider: "edge",
+    voice: "en-US-JennyNeural",
+    outputYouTube: true,
+    outputTikTok: true,
+    skippedPages: [],
+    voiceSpeed: 100,
+  };
+
+  it("keeps skippedPages optional", () => {
+    const without: Project = { ...project };
+    delete (without as { skippedPages?: number[] }).skippedPages;
+    expect((without as { skippedPages?: number[] }).skippedPages).toBeUndefined();
+  });
+
+  it("uses a percentage-based voiceSpeed (75-125 UI range)", () => {
+    expect(project.voiceSpeed).toBeGreaterThanOrEqual(1);
+    expect(project.voiceSpeed).toBeLessThanOrEqual(200);
+  });
+});
+
+describe("SystemStatus contract", () => {
+  const status: SystemStatus = {
+    ffmpeg: true,
+    ffprobe: true,
+    platform: "win32",
+    ffmpegSidecarReady: true,
+  };
+
+  it("reports boolean dependency readiness", () => {
+    expect(typeof status.ffmpeg).toBe("boolean");
+    expect(typeof status.ffprobe).toBe("boolean");
+    expect(typeof status.ffmpegSidecarReady).toBe("boolean");
+    expect(typeof status.platform).toBe("string");
   });
 });

@@ -127,6 +127,9 @@ export function useProjectState(): ProjectState {
   });
   const saveTimer = useRef<number | null>(null);
   const importAbort = useRef<AbortController | null>(null);
+  // Guards the debounced auto-save so the demo/default project is never
+  // written to disk before we have had a chance to hydrate a saved project.
+  const hydrated = useRef(false);
 
   const active = project.scenes.find((scene) => scene.id === activeId) ?? project.scenes[0];
 
@@ -146,6 +149,10 @@ export function useProjectState(): ProjectState {
         }
       } catch (error) {
         if (mounted) setStatus(`Could not load project: ${error}`);
+      } finally {
+        // Mark hydration complete regardless of success/failure so the
+        // auto-save effect below is allowed to persist changes.
+        hydrated.current = true;
       }
     })();
     return () => {
@@ -153,17 +160,16 @@ export function useProjectState(): ProjectState {
     };
   }, []);
 
-  // Debounced auto-save
+  // Debounced auto-save (skipped until hydration has run once)
   useEffect(() => {
-    let mounted = true;
+    if (!hydrated.current) return;
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
       saveProject(project).catch((error) => {
-        if (mounted) setStatus(`Save failed: ${error}`);
+        setStatus(`Save failed: ${error}`);
       });
     }, 600);
     return () => {
-      mounted = false;
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
     };
   }, [project]);
@@ -251,14 +257,26 @@ export function useProjectState(): ProjectState {
     }));
   }, []);
 
-  const removeScene = useCallback((id: string) => {
-    setProject((current) => {
-      if (current.scenes.length === 1) return current;
-      const scenes = current.scenes.filter((scene) => scene.id !== id);
-      setActiveId(scenes[0].id);
-      return { ...current, scenes };
-    });
-  }, []);
+  const removeScene = useCallback(
+    (id: string) => {
+      setProject((current) => {
+        if (current.scenes.length === 1) return current;
+        return { ...current, scenes: current.scenes.filter((scene) => scene.id !== id) };
+      });
+      // Keep the active selection valid after removal without mutating inside
+      // the setProject updater. Prefer the neighbour of the removed scene.
+      setActiveId((currentActive) => {
+        const idx = project.scenes.findIndex((scene) => scene.id === id);
+        if (idx === -1) return currentActive;
+        const remaining = project.scenes.filter((scene) => scene.id !== id);
+        if (remaining.length === 0) return currentActive;
+        // Stay near the deleted position instead of always jumping to scene 0.
+        const fallback = remaining[Math.min(idx, remaining.length - 1)];
+        return fallback.id;
+      });
+    },
+    [project.scenes],
+  );
 
   const cancelImport = useCallback(() => {
     importAbort.current?.abort();

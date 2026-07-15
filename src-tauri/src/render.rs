@@ -1019,10 +1019,26 @@ fn sanitize(name: &str) -> String {
 }
 
 fn sanitize_ffmpeg_drawtext(text: &str) -> String {
-    text.replace('\\', "\\\\")
-        .replace(':', "\\:")
-        .replace('\'', "")
-        .replace('%', "\\%")
+    // The caption is embedded in a single-quoted drawtext value
+    // (`text='...'`). We must ensure no character can break out of that
+    // quoted string or inject filter-graph syntax. Inside a single-quoted
+    // value the metacharacters are backslash and single quote (escaped/
+    // removed); `%` is special to drawtext (metadata expansion) so it is
+    // escaped too. Control characters (newline, CR, tab, NUL, …) are
+    // dropped because they cannot be represented in a drawtext literal
+    // and could corrupt the graph.
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\'' => {}
+            '%' => out.push_str("\\%"),
+            ':' => out.push_str("\\:"),
+            '\n' | '\r' | '\t' | '\x00'..='\x1f' => {}
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// Pull the *actionable* part of an FFmpeg failure out of its stderr.

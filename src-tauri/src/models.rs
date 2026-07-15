@@ -125,7 +125,23 @@ fn model_registry() -> Vec<ModelSpec> {
     ]
 }
 
+/// Reject model IDs that could escape the models directory (path
+/// separators or `..` segments). Model IDs are registry-generated
+/// identifiers (`marian-en-es`, `piper-en_US-amy`), never paths.
+fn validate_model_id(model_id: &str) -> Result<(), String> {
+    if model_id.is_empty()
+        || model_id.contains('/')
+        || model_id.contains('\\')
+        || model_id.contains("..")
+        || model_id.starts_with('.')
+    {
+        return Err(format!("Invalid model id: {model_id}"));
+    }
+    Ok(())
+}
+
 pub fn model_path(app: &AppHandle, model_id: &str) -> Result<PathBuf, String> {
+    validate_model_id(model_id)?;
     let dir = app_data_dir(app)?.join("models").join(model_id);
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)

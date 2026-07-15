@@ -369,13 +369,23 @@ fn ocr_venv_dir(app: &AppHandle) -> Result<PathBuf, String> {
 /// read or memory-exhaustion DoS.
 #[tauri::command]
 pub fn read_pdf_file(path: String) -> Result<Response, String> {
-    let normalized = std::path::Path::new(&path);
-    match normalized.extension().and_then(|e| e.to_str()) {
+    // Canonicalize first: resolves `..` and symlinks so the extension and
+    // size checks below operate on the real target, and so a path like
+    // `evil.pdf` that is actually a symlink to a non-PDF cannot slip
+    // through. The command is intentionally allowed to read any `.pdf` the
+    // user selects (including outside the app dir) — that is its purpose.
+    let canonical = std::fs::canonicalize(&path)
+        .map_err(|e| format!("Could not access {path}: {e}"))?;
+    match canonical.extension().and_then(|e| e.to_str()) {
         Some(ext) if ext.eq_ignore_ascii_case("pdf") => {}
         _ => return Err("Only .pdf files can be read".into()),
     }
 
-    let meta = std::fs::metadata(&path).map_err(|e| format!("Could not access {path}: {e}"))?;
+    let meta = std::fs::metadata(&canonical)
+        .map_err(|e| format!("Could not access {}: {e}", canonical.display()))?;
+    if !meta.is_file() {
+        return Err("Path is not a regular file".into());
+    }
     const MAX_BYTES: u64 = 200 * 1024 * 1024;
     if meta.len() > MAX_BYTES {
         return Err(format!(
@@ -384,7 +394,8 @@ pub fn read_pdf_file(path: String) -> Result<Response, String> {
         ));
     }
 
-    let bytes = std::fs::read(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
+    let bytes =
+        std::fs::read(&canonical).map_err(|e| format!("Could not read {}: {e}", canonical.display()))?;
     Ok(Response::new(bytes))
 }
 

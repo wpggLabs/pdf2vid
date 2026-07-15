@@ -149,7 +149,7 @@ pdf2vid/
 ├── src-tauri/               # Rust backend
 │   ├── src/
 │   │   ├── lib.rs           # Tauri builder + command registration
-│   │   ├── commands.rs      # 14 #[tauri::command] handlers
+   │   │   ├── commands.rs      # 21 #[tauri::command] handlers
 │   │   ├── render.rs        # 4-stage export pipeline
 │   │   ├── providers.rs     # Provider registry
 │   │   ├── edgetts.rs       # edge-tts Python subprocess + subtitle cues

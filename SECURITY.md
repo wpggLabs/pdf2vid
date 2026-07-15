@@ -41,6 +41,13 @@ corresponding provider is selected:
 - `translation.googleapis.com` — Google Cloud Translation (per scene,
   when Google selected).
 - `api.elevenlabs.io` — ElevenLabs TTS (per scene, when ElevenLabs selected).
+- `pypi.org` — OCR engine install. When a scanned/image-only page is
+  imported, the app lazily creates a **dedicated Python venv** under the
+  app data directory and `pip install`s `rapidocr-onnxruntime` +
+  `pillow` (one-time; PyPI + its CDN). No system Python is modified,
+  and no code runs outside that venv. The OCR subprocess is invoked with
+  the image path passed as an argv argument (no shell interpolation), so
+  the page image cannot inject Python.
 
 No telemetry, no analytics, no auto-update pings.
 

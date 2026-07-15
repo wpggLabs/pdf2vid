@@ -161,25 +161,27 @@ pub fn ocr_png_data_url(venv_dir: &Path, data_url: &str) -> Result<String, Strin
     }
 
     // RapidOCR returns a list of [box, text, score]; we join the texts.
-    let script = format!(
-        "import sys, json\n\
-         try:\n\
-             from PIL import Image\n\
-             import numpy as np\n\
-             from rapidocr_onnxruntime import RapidOCR\n\
-             img = np.array(Image.open(r'{img}').convert('RGB'))\n\
-             engine = RapidOCR()\n\
-             result, _ = engine(img)\n\
-             texts = [t[1] for t in (result or [])]\n\
-             sys.stdout.write(json.dumps({{'text': '\\n'.join(texts)}}))\n\
-         except Exception as e:\n\
-             sys.stderr.write('ocr error: ' + str(e) + '\\n')\n\
-             sys.exit(2)\n",
-        img = img_path.display(),
-    );
+    // The image path is passed via argv (sys.argv[1]) rather than
+    // interpolated into the script source, so a future change that lets
+    // user-supplied paths reach here cannot break out of the string
+    // literal and inject Python.
+    let script = "\
+        import sys, json\n\
+        try:\n\
+            from PIL import Image\n\
+            import numpy as np\n\
+            from rapidocr_onnxruntime import RapidOCR\n\
+            img = np.array(Image.open(sys.argv[1]).convert('RGB'))\n\
+            engine = RapidOCR()\n\
+            result, _ = engine(img)\n\
+            texts = [t[1] for t in (result or [])]\n\
+            sys.stdout.write(json.dumps({'text': '\\n'.join(texts)}))\n\
+        except Exception as e:\n\
+            sys.stderr.write('ocr error: ' + str(e) + '\\n')\n\
+            sys.exit(2)\n";
 
     let mut cmd = Command::new(&python);
-    cmd.arg("-c").arg(&script);
+    cmd.arg("-c").arg(script).arg(&img_path);
     hide_window(&mut cmd);
 
     // Always remove the temp image, whether OCR succeeds or fails.

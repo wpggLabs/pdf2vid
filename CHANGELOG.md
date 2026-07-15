@@ -82,13 +82,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Strict scope notes
 
-- We do NOT yet claim OCR support. The image-only fixture fails the
-  import with a typed error.
+- OCR is shipped as an opt-in fallback for scanned/image-only pages: the
+  app lazily creates a dedicated Python venv (under app data) and installs
+  `rapidocr-onnxruntime`. It is never used unless a page yields no
+  selectable text.
 - We do NOT yet claim translation. The Spanish fixture imports as
   Spanish; the render pipeline records an `UntranslatedScene`
   warning per scene.
-- We do NOT yet claim "any PDF". Scanned PDFs, encrypted PDFs, and
-  password-protected PDFs are all out of scope until Phase 3.
+- We do NOT yet claim "any PDF". Encrypted PDFs and password-protected
+  PDFs remain out of scope until Phase 3.
 
 ## [0.1.0] — 2026-06-19
 

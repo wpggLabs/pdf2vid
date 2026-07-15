@@ -1,39 +1,46 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { extractPageText } from "./pdf";
 
 // The heavy PDF import tests live in `src-tauri/tests/pdf_pipeline.rs`,
 // which parses the same fixtures with `pdf-extract` and runs them
-// through the production render path. Here we just confirm the
-// fixtures are present and well-formed so a CI run can fail fast if
-// somebody deletes one.
+// through the production render path. Here we unit-test the pure text
+// extraction logic from `pdf.ts` with a minimal fake page, so a
+// regression in `extractPageText` fails fast without a full PDF engine.
 
-const FIXTURES_DIR = `${process.cwd()}/fixtures`;
+function fakePage(items: Array<{ str?: string }>) {
+  return {
+    getTextContent: vi.fn(async () => ({ items })),
+  } as unknown as import("pdfjs-dist").PDFPageProxy;
+}
 
-describe("pdf fixtures are present and well-formed", () => {
-  it("clean-text-3page.pdf is a valid PDF", async () => {
-    const fs = await import("node:fs/promises");
-    const bytes = await fs.readFile(`${FIXTURES_DIR}/clean-text-3page.pdf`);
-    expect(bytes.length).toBeGreaterThan(1000);
-    expect(bytes.subarray(0, 4).toString()).toBe("%PDF");
+describe("extractPageText", () => {
+  it("joins text items with spaces", async () => {
+    const page = fakePage([{ str: "Hello" }, { str: "world" }]);
+    const text = await extractPageText(page);
+    expect(text).toBe("Hello world");
   });
 
-  it("mixed-blank-page.pdf is a valid PDF", async () => {
-    const fs = await import("node:fs/promises");
-    const bytes = await fs.readFile(`${FIXTURES_DIR}/mixed-blank-page.pdf`);
-    expect(bytes.length).toBeGreaterThan(1000);
-    expect(bytes.subarray(0, 4).toString()).toBe("%PDF");
+  it("collapses runs of whitespace into a single space", async () => {
+    const page = fakePage([{ str: "a" }, { str: "   b   " }, { str: "c" }]);
+    const text = await extractPageText(page);
+    expect(text).toBe("a b c");
   });
 
-  it("non-english-3page.pdf is a valid PDF", async () => {
-    const fs = await import("node:fs/promises");
-    const bytes = await fs.readFile(`${FIXTURES_DIR}/non-english-3page.pdf`);
-    expect(bytes.length).toBeGreaterThan(1000);
-    expect(bytes.subarray(0, 4).toString()).toBe("%PDF");
+  it("trims leading/trailing whitespace", async () => {
+    const page = fakePage([{ str: "  padded  " }]);
+    const text = await extractPageText(page);
+    expect(text).toBe("padded");
   });
 
-  it("scanned-or-image-page.pdf is a valid PDF", async () => {
-    const fs = await import("node:fs/promises");
-    const bytes = await fs.readFile(`${FIXTURES_DIR}/scanned-or-image-page.pdf`);
-    expect(bytes.length).toBeGreaterThan(1000);
-    expect(bytes.subarray(0, 4).toString()).toBe("%PDF");
+  it("returns an empty string for image-only pages", async () => {
+    const page = fakePage([{ str: "" }, { str: "" }]);
+    const text = await extractPageText(page);
+    expect(text).toBe("");
+  });
+
+  it("ignores non-text items", async () => {
+    const page = fakePage([{ str: "keep" }, {}, { str: "this" }]);
+    const text = await extractPageText(page);
+    expect(text).toBe("keep this");
   });
 });

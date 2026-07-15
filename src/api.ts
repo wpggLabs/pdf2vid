@@ -1,4 +1,9 @@
-import type { ProviderCategory, ProviderKind, ProviderOption } from "./types";
+import type {
+  SystemStatus as BaseSystemStatus,
+  ProviderCategory,
+  ProviderKind,
+  ProviderOption,
+} from "./types";
 
 export interface ProviderList {
   translation: ProviderOption[];
@@ -7,11 +12,13 @@ export interface ProviderList {
   languages: string[];
 }
 
-export interface SystemStatus {
-  ffmpeg: boolean;
-  ffprobe: boolean;
-  platform: string;
-  ffmpegSidecarReady: boolean;
+/**
+ * System status as returned by `getSystemStatus`. Extends the base
+ * `SystemStatus` from `./types` with the optional font-discovery fields
+ * the renderer needs. Keeping the base in `./types` is the single
+ * source of truth for the core dependency booleans.
+ */
+export interface SystemStatus extends BaseSystemStatus {
   /**
    * True when a usable drawtext font was discovered. When false, exports
    * fall back to text-less drawtext and the `warnings` array on

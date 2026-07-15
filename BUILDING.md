@@ -30,7 +30,7 @@ npm run tauri build           # produces installers for the current platform
 
 ```bash
 npm run build:win      # Windows: .msi + .exe
-npm run build:mac      # macOS:   .dmg + .app (Intel + Apple Silicon)
+npm run build:mac      # macOS:   .dmg + .app (Apple Silicon)
 npm run build:linux    # Linux:   .deb + .AppImage + .rpm
 ```
 
@@ -83,7 +83,7 @@ in parallel when you push a `v*` tag.
 3. Commit and push a `vX.Y.Z` tag.
 4. `.github/workflows/release.yml` triggers:
    - Windows installer (`.msi` + `.exe`)
-   - macOS bundles (`.dmg` + `.app` for x86_64 and arm64)
+   - macOS bundles (`.dmg` + `.app`, Apple Silicon only)
    - Linux packages (`.deb` + `.AppImage` + `.rpm`)
    - GitHub release draft with all artifacts.
 

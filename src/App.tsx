@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { ProviderList } from "./api";
+import type { ProviderList, SystemStatus } from "./api";
 import { startExport as backendExport, getProviderList, getSystemStatus } from "./backend";
 import { EditorSection } from "./components/EditorSection";
 import { ExportModal } from "./components/ExportModal";
@@ -18,7 +18,6 @@ import { useTranslationModelPrompt } from "./hooks/useTranslationModelPrompt";
 import { captionLineAt, wrapCaptionLines } from "./lib/captions";
 import { useProjectState } from "./state/useProjectState";
 import { useWorkspaceUi } from "./state/useWorkspaceUi";
-import type { SystemStatus } from "./types";
 
 function App() {
   const proj = useProjectState();
@@ -313,6 +312,7 @@ function App() {
         <span className="system-status">
           {system.platform} · FFmpeg{" "}
           {system.ffmpeg || system.ffmpegSidecarReady ? "ready" : "not found"}
+          {system.fontAvailable === false ? " · no caption font" : ""}
         </span>
       </footer>
 

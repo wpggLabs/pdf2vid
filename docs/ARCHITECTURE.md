@@ -24,7 +24,7 @@ and tooling can navigate the codebase.
 ┌────────────▼─────────────────────────────────────────────────────┐
 │  Rust process (Tauri commands + plugins)                         │
 │  ┌───────────────────────────────────────────────────────────┐  │
-│  │  commands.rs: 14 #[tauri::command] handlers               │  │
+│  │  commands.rs: 21 #[tauri::command] handlers               │  │
 │  │  state.rs:    AppState with active_job + cancel flag       │  │
 │  └───────────────────────────────────────────────────────────┘  │
 │            │                                                    │
@@ -97,8 +97,8 @@ event. Components and hooks only import from this module — they never call
 
 ### Command Surface
 
-All Tauri commands are registered in `lib.rs:21` and implemented in
-`commands.rs`:
+All 21 Tauri commands are registered in `lib.rs` (inside `run()`) and
+implemented in `commands.rs`:
 
 | Command | Purpose |
 |---|---|
@@ -106,7 +106,7 @@ All Tauri commands are registered in `lib.rs:21` and implemented in
 | `save_project` / `load_project` | Project persistence in `app_data_dir` |
 | `store_api_key` | Keyring-backed secret storage |
 | `list_providers` | Returns the provider registry descriptor |
-| `list_models` / `download_model` / `delete_model` / `is_model_installed` | Local model management |
+| `list_models` / `download_model` / `delete_model` / `is_model_installed` / `cancel_model_download` | Local model management |
 | `translate_text` | One-shot translation preview |
 | `preview_voice` | One-shot TTS preview (returns data URL) |
 | `validate_export` | Pre-flight check (output formats, scenes, scripts, FFmpeg) |
@@ -114,6 +114,9 @@ All Tauri commands are registered in `lib.rs:21` and implemented in
 | `cancel_export` | Flips the active job's cancel flag |
 | `read_pdf_file` | Rust-side PDF read for large file imports |
 | `check_tts_engine` | Detects Python + edge-tts availability |
+| `dependency_status` | Reports FFmpeg/FFprobe/venv/Python readiness |
+| `local_deps` | Lists installable local Python dependencies |
+| `ocr_image` / `ensure_ocr` | Scanned-page OCR fallback (dedicated venv) |
 
 ### State (`state.rs`)
 
