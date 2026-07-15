@@ -3,7 +3,7 @@
 // in src-tauri/binaries/ with Tauri's expected naming convention.
 //
 // Usage: node scripts/fetch-ffmpeg.js [platform]
-//   platform: win-x86_64 | mac-x86_64 | mac-arm64 | linux-x86_64 | all | host
+//   platform: win-x86_64 | mac-arm64 | linux-x86_64 | all | host
 //
 // Supply-chain hardening
 // ----------------------
@@ -44,13 +44,6 @@ const SOURCES = {
         `powershell -NoProfile -Command "Get-ChildItem -Recurse '${outDir}\\extracted' -Filter ffmpeg.exe | Select-Object -First 1 -ExpandProperty FullName"`,
         { encoding: "utf8" },
       ).trim();
-    },
-  },
-  "mac-x86_64": {
-    url: "https://evermeet.cx/ffmpeg/getrelease/zip",
-    extract: (zipPath, outDir) => {
-      execSync(`unzip -o "${zipPath}" -d "${outDir}"`, { stdio: "inherit" });
-      return join(outDir, "ffmpeg");
     },
   },
   "mac-arm64": {
@@ -156,7 +149,10 @@ function fetchTarget(key) {
 
 function currentHostKey() {
   if (platform === "win32") return "win-x86_64";
-  if (platform === "darwin") return arch === "arm64" ? "mac-arm64" : "mac-x86_64";
+  // CI only ships Apple Silicon macOS builds, so any macOS host targets
+  // the arm64 sidecar. (Intel macOS FFmpeg is no longer fetched — see
+  // SOURCES and the release workflow matrix.)
+  if (platform === "darwin") return "mac-arm64";
   if (platform === "linux") return "linux-x86_64";
   throw new Error(`Unsupported host: ${platform}/${arch}`);
 }

@@ -28,8 +28,11 @@ document data leaves the device before a request is submitted.
 The app only contacts the following origins, and only when the
 corresponding provider is selected:
 
-- `huggingface.co` — local model weight downloads (Kokoro, Chatterbox).
-  One-time per model. Argos language packs come from the Argos index.
+- `huggingface.co` — local model weight downloads for the MarianMT
+  and Piper providers (pulled by `models::download_model`). One-time
+  per model. Kokoro, Chatterbox, and Argos are installed via `pip`
+  (PyPI) instead, so their weights live in the user's Python cache
+  rather than Hugging Face.
 - `*.api.cognitive.microsoft.com` — edge-tts synthesis via Python
   subprocess (per scene, when `edge` provider selected).
 - `api.streamelements.com` — StreamElements TTS fallback (per scene,

@@ -299,6 +299,11 @@ pub async fn download_model(
         // Verify integrity when the registry ships a hash. This is a no-op
         // while `spec.sha256` is empty, and an active guard against corrupt
         // or tampered downloads otherwise.
+        //
+        // SECURITY: the model registry currently uses mutable Hugging
+        // Face `resolve/main` URLs with no pinned hash, so integrity
+        // verification is disabled by default. We surface that loudly
+        // rather than silently accepting unverified executable weights.
         if !spec.sha256.is_empty() {
             let actual = hash_file(&target).map_err(|e| e.to_string())?;
             if actual != spec.sha256 {
@@ -308,6 +313,23 @@ pub async fn download_model(
                     spec.sha256
                 ));
             }
+        } else {
+            let _ = app.emit(
+                "model:progress",
+                crate::types::ModelDownloadProgress {
+                    model_id: model_id.into(),
+                    downloaded: total,
+                    total,
+                    percent: 100,
+                },
+            );
+            log::warn!(
+                "Model '{}' is downloaded WITHOUT checksum verification \
+                 (registry hash is empty and the source URL is a mutable \
+                 'resolve/main' ref). Pin a hash before shipping in a \
+                 release build.",
+                spec.id
+            );
         }
     }
 

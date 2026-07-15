@@ -35,6 +35,30 @@ export async function parsePdf(
   return parsePdfViaFile(source.file, onProgress, signal);
 }
 
+/**
+ * Open a PDF document, converting pdfjs's encryption error into a clear,
+ * user-facing message. pdfjs throws a `PasswordException` (code 2) for
+ * password-protected / encrypted PDFs; we surface that explicitly instead
+ * of letting a generic "Failed to load" bubble up — encrypted PDFs are
+ * out of scope per the project's stated limitations.
+ */
+async function openPdf(
+  options: Parameters<typeof pdfjs.getDocument>[0],
+): Promise<Awaited<ReturnType<typeof pdfjs.getDocument>["promise"]>> {
+  try {
+    return await pdfjs.getDocument(options).promise;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    const code = (error as { code?: number } | null)?.code;
+    if (code === 2 || /password/i.test(msg)) {
+      throw new Error(
+        "This PDF is password-protected or encrypted. Encrypted PDFs are not supported yet.",
+      );
+    }
+    throw error;
+  }
+}
+
 async function parsePdfViaPath(
   path: string,
   onProgress?: (page: number, total: number) => void,
@@ -42,7 +66,7 @@ async function parsePdfViaPath(
 ): Promise<PdfImportResult> {
   const bytes = await readPdfFile(path);
   const u8 = new Uint8Array(bytes);
-  const document = await pdfjs.getDocument({ data: u8 }).promise;
+  const document = await openPdf({ data: u8 });
   return extractScenes(document, onProgress, signal);
 }
 
@@ -67,11 +91,11 @@ async function parsePdfViaBlob(
   const blobUrl = URL.createObjectURL(file);
   let document: Awaited<ReturnType<typeof pdfjs.getDocument>["promise"]>;
   try {
-    document = await pdfjs.getDocument({
+    document = await openPdf({
       url: blobUrl,
       disableStream: false,
       disableAutoFetch: false,
-    }).promise;
+    });
   } catch (e) {
     URL.revokeObjectURL(blobUrl);
     throw e;
@@ -89,7 +113,7 @@ async function parsePdfViaBuffer(
   signal?: AbortSignal,
 ): Promise<PdfImportResult> {
   const buffer = await file.arrayBuffer();
-  const document = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+  const document = await openPdf({ data: new Uint8Array(buffer) });
   return extractScenes(document, onProgress, signal);
 }
 
