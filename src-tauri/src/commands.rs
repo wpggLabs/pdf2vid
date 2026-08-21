@@ -374,8 +374,8 @@ pub fn read_pdf_file(path: String) -> Result<Response, String> {
     // `evil.pdf` that is actually a symlink to a non-PDF cannot slip
     // through. The command is intentionally allowed to read any `.pdf` the
     // user selects (including outside the app dir) — that is its purpose.
-    let canonical = std::fs::canonicalize(&path)
-        .map_err(|e| format!("Could not access {path}: {e}"))?;
+    let canonical =
+        std::fs::canonicalize(&path).map_err(|e| format!("Could not access {path}: {e}"))?;
     match canonical.extension().and_then(|e| e.to_str()) {
         Some(ext) if ext.eq_ignore_ascii_case("pdf") => {}
         _ => return Err("Only .pdf files can be read".into()),
@@ -394,8 +394,8 @@ pub fn read_pdf_file(path: String) -> Result<Response, String> {
         ));
     }
 
-    let bytes =
-        std::fs::read(&canonical).map_err(|e| format!("Could not read {}: {e}", canonical.display()))?;
+    let bytes = std::fs::read(&canonical)
+        .map_err(|e| format!("Could not read {}: {e}", canonical.display()))?;
     Ok(Response::new(bytes))
 }
 

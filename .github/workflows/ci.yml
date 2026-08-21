@@ -41,6 +41,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf fonts-dejavu-core
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: macOS fetch tools
+        if: runner.os == 'macOS'
+        run: brew install curl unzip xz
+      - name: Fetch FFmpeg sidecar
+        # tauri.conf.json declares bundle.externalBin, so build.rs fails
+        # unless these binaries are present under src-tauri/binaries/ even
+        # for `cargo build`/`test`, not just release packaging.
+        shell: bash
+        run: node scripts/fetch-ffmpeg.js host
       - name: Rustfmt
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - name: Clippy

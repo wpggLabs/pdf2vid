@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Downloads platform-specific FFmpeg static builds and places them
-// in src-tauri/binaries/ with Tauri's expected naming convention.
+// Downloads platform-specific FFmpeg + FFprobe static builds and places
+// them in src-tauri/binaries/ with Tauri's expected sidecar naming
+// convention (<name>-<target-triple>[.exe]).
 //
 // Usage: node scripts/fetch-ffmpeg.js [platform]
 //   platform: win-x86_64 | mac-arm64 | linux-x86_64 | all | host
@@ -32,36 +33,55 @@ const CHECKSUMS_FILE = join(__dirname, "ffmpeg-checksums.json");
 
 if (!existsSync(BIN_DIR)) mkdirSync(BIN_DIR, { recursive: true });
 
+// Each platform lists the archive(s) it needs (win/linux ship ffmpeg and
+// ffprobe in one archive; the macOS host serves them as two separate
+// downloads) and an `extract` step that returns paths to both binaries.
 const SOURCES = {
   "win-x86_64": {
-    url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
-    extract: (zipPath, outDir) => {
+    archives: {
+      main: {
+        url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
+        checksumKey: "win-x86_64",
+      },
+    },
+    extract: (archives, outDir) => {
       execSync(
-        `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${outDir}\\extracted' -Force"`,
+        `powershell -NoProfile -Command "Expand-Archive -LiteralPath '${archives.main}' -DestinationPath '${outDir}\\extracted' -Force"`,
         { stdio: "inherit" },
       );
-      return execSync(
-        `powershell -NoProfile -Command "Get-ChildItem -Recurse '${outDir}\\extracted' -Filter ffmpeg.exe | Select-Object -First 1 -ExpandProperty FullName"`,
-        { encoding: "utf8" },
-      ).trim();
+      const find = (filter) =>
+        execSync(
+          `powershell -NoProfile -Command "Get-ChildItem -Recurse '${outDir}\\extracted' -Filter ${filter} | Select-Object -First 1 -ExpandProperty FullName"`,
+          { encoding: "utf8" },
+        ).trim();
+      return { ffmpeg: find("ffmpeg.exe"), ffprobe: find("ffprobe.exe") };
     },
   },
   "mac-arm64": {
-    url: "https://osxexperts.net/ffmpeg7arm.zip",
-    extract: (zipPath, outDir) => {
-      execSync(`unzip -o "${zipPath}" -d "${outDir}"`, { stdio: "inherit" });
-      return join(outDir, "ffmpeg");
+    archives: {
+      ffmpeg: { url: "https://osxexperts.net/ffmpeg7arm.zip", checksumKey: "mac-arm64" },
+      ffprobe: { url: "https://osxexperts.net/ffprobe7arm.zip", checksumKey: "mac-arm64-ffprobe" },
+    },
+    extract: (archives, outDir) => {
+      execSync(`unzip -o "${archives.ffmpeg}" -d "${outDir}"`, { stdio: "inherit" });
+      execSync(`unzip -o "${archives.ffprobe}" -d "${outDir}"`, { stdio: "inherit" });
+      return { ffmpeg: join(outDir, "ffmpeg"), ffprobe: join(outDir, "ffprobe") };
     },
   },
   "linux-x86_64": {
     // BtbN GitHub builds are used instead of johnvansickle.com, which
     // returns HTTP 415 to CI/curl requests (hotlink protection).
-    url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz",
-    extract: (tarPath, outDir) => {
-      execSync(`tar -xJf "${tarPath}" -C "${outDir}"`, { stdio: "inherit" });
-      return execSync(`find "${outDir}" -type f -name ffmpeg | head -1`, {
-        encoding: "utf8",
-      }).trim();
+    archives: {
+      main: {
+        url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz",
+        checksumKey: "linux-x86_64",
+      },
+    },
+    extract: (archives, outDir) => {
+      execSync(`tar -xJf "${archives.main}" -C "${outDir}"`, { stdio: "inherit" });
+      const find = (name) =>
+        execSync(`find "${outDir}" -type f -name ${name} | head -1`, { encoding: "utf8" }).trim();
+      return { ffmpeg: find("ffmpeg"), ffprobe: find("ffprobe") };
     },
   },
 };
@@ -132,19 +152,30 @@ function fetchTarget(key) {
   const workDir = join(BIN_DIR, ".work", key);
   if (!existsSync(workDir)) mkdirSync(workDir, { recursive: true });
 
-  const ext = key.startsWith("win") ? ".zip" : key.startsWith("linux") ? ".tar.xz" : ".zip";
-  const archive = join(workDir, `ffmpeg${ext}`);
+  const archivePaths = {};
+  for (const [name, archive] of Object.entries(source.archives)) {
+    const ext = archive.url.endsWith(".tar.xz") ? ".tar.xz" : ".zip";
+    const dest = join(workDir, `${name}${ext}`);
+    download(archive.url, dest);
+    verify(archive.checksumKey, dest);
+    archivePaths[name] = dest;
+  }
 
-  download(source.url, archive);
-  verify(key, archive);
-
-  const extracted = source.extract(archive, workDir);
-  const sidecarName = `ffmpeg-${TRIPLES[key]}${key.startsWith("win") ? ".exe" : ""}`;
-  const finalPath = join(BIN_DIR, sidecarName);
-  renameSync(extracted, finalPath);
-  if (!key.startsWith("win")) chmodSync(finalPath, 0o755);
-  console.log(`✓ Sidecar: ${finalPath}`);
-  return finalPath;
+  const { ffmpeg, ffprobe } = source.extract(archivePaths, workDir);
+  const isWin = key.startsWith("win");
+  const results = [];
+  for (const [bin, extractedPath] of [
+    ["ffmpeg", ffmpeg],
+    ["ffprobe", ffprobe],
+  ]) {
+    const sidecarName = `${bin}-${TRIPLES[key]}${isWin ? ".exe" : ""}`;
+    const finalPath = join(BIN_DIR, sidecarName);
+    renameSync(extractedPath, finalPath);
+    if (!isWin) chmodSync(finalPath, 0o755);
+    console.log(`✓ Sidecar: ${finalPath}`);
+    results.push(finalPath);
+  }
+  return results;
 }
 
 function currentHostKey() {
@@ -164,7 +195,7 @@ function main() {
   else if (arg === "all") keys = Object.keys(SOURCES);
   else keys = [arg];
 
-  console.log(`Fetching FFmpeg for: ${keys.join(", ")}`);
+  console.log(`Fetching FFmpeg + FFprobe for: ${keys.join(", ")}`);
   for (const key of keys) {
     try {
       fetchTarget(key);

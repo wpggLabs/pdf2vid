@@ -18,7 +18,7 @@
     "fetch-ffmpeg": "node scripts/fetch-ffmpeg.js",
     "fetch-ffmpeg:all": "node scripts/fetch-ffmpeg.js all",
     "build:win": "node scripts/fetch-ffmpeg.js win-x86_64 && npm run tauri build",
-    "build:mac": "node scripts/fetch-ffmpeg.js mac && npm run tauri build",
+    "build:mac": "node scripts/fetch-ffmpeg.js mac-arm64 && npm run tauri build",
     "build:linux": "node scripts/fetch-ffmpeg.js linux-x86_64 && npm run tauri build"
   },
   "dependencies": {
@@ -27,7 +27,7 @@
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-store": "^2.4.3",
-    "pdfjs-dist": "^6.0.227",
+    "pdfjs-dist": "^6.2.108",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
