@@ -96,6 +96,13 @@ export function ModelsModal({ onClose }: Props) {
           Free local providers need model files. They're downloaded once and cached on this device.
         </p>
 
+        {models.length === 0 && !error && (
+          <p className="modal-note">
+            No downloadable local models yet. Argos (translation) and edge-tts (voice) manage their
+            own models separately and need no download here.
+          </p>
+        )}
+
         <div className="model-list">
           {models.map((model) => {
             const prog = progress[model.id];

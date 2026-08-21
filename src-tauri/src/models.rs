@@ -17,112 +17,24 @@ pub struct ModelSpec {
     pub requires_accept: bool,
 }
 
+// The model registry is intentionally empty. It previously listed 9
+// MarianMT language pairs and 1 Piper voice, but none of them were
+// real: the file names requested didn't exist in the upstream Hugging
+// Face repos (confirmed 404 on every one of them), and even a
+// successful download would have gone unused — `translate_text`
+// aliases the "marian" provider straight to Argos
+// (commands.rs), and `cloud::marian_translate` /
+// `cloud::piper_synthesize` unconditionally return "not yet
+// implemented". Neither provider is offered in the translation/voice
+// dropdowns (providers.rs marks Piper "Coming soon" and Marian isn't
+// listed at all), so this only affected users who opened the Local
+// Models modal directly.
+//
+// Re-populate this once local ONNX inference is actually wired up
+// (see the integration points noted in cloud.rs), with real,
+// currently-hosted file names and pinned sha256 hashes per file.
 fn model_registry() -> Vec<ModelSpec> {
-    vec![
-        // MarianMT pairs (Helsinki-NLP/Opus-MT) - one per advertised language pair with English
-        ModelSpec {
-            id: "marian-en-es".into(),
-            family: "marian".into(),
-            label: "English ↔ Spanish".into(),
-            url: "https://huggingface.co/Helsinki-NLP/opus-mt-en-es/resolve/main/".into(),
-            size_bytes: 300_000_000,
-            sha256: String::new(),
-            license: "CC-BY-4.0".into(),
-            requires_accept: false,
-        },
-        ModelSpec {
-            id: "marian-en-fr".into(),
-            family: "marian".into(),
-            label: "English ↔ French".into(),
-            url: "https://huggingface.co/Helsinki-NLP/opus-mt-en-fr/resolve/main/".into(),
-            size_bytes: 300_000_000,
-            sha256: String::new(),
-            license: "CC-BY-4.0".into(),
-            requires_accept: false,
-        },
-        ModelSpec {
-            id: "marian-en-de".into(),
-            family: "marian".into(),
-            label: "English ↔ German".into(),
-            url: "https://huggingface.co/Helsinki-NLP/opus-mt-en-de/resolve/main/".into(),
-            size_bytes: 300_000_000,
-            sha256: String::new(),
-            license: "CC-BY-4.0".into(),
-            requires_accept: false,
-        },
-        ModelSpec {
-            id: "marian-en-pt".into(),
-            family: "marian".into(),
-            label: "English ↔ Portuguese".into(),
-            url: "https://huggingface.co/Helsinki-NLP/opus-mt-en-pt/resolve/main/".into(),
-            size_bytes: 300_000_000,
-            sha256: String::new(),
-            license: "CC-BY-4.0".into(),
-            requires_accept: false,
-        },
-        ModelSpec {
-            id: "marian-en-hi".into(),
-            family: "marian".into(),
-            label: "English ↔ Hindi".into(),
-            url: "https://huggingface.co/Helsinki-NLP/opus-mt-en-hi/resolve/main/".into(),
-            size_bytes: 300_000_000,
-            sha256: String::new(),
-            license: "CC-BY-4.0".into(),
-            requires_accept: false,
-        },
-        ModelSpec {
-            id: "marian-en-jap".into(),
-            family: "marian".into(),
-            label: "English ↔ Japanese".into(),
-            url: "https://huggingface.co/Helsinki-NLP/opus-mt-en-jap/resolve/main/".into(),
-            size_bytes: 300_000_000,
-            sha256: String::new(),
-            license: "CC-BY-4.0".into(),
-            requires_accept: false,
-        },
-        ModelSpec {
-            id: "marian-en-ko".into(),
-            family: "marian".into(),
-            label: "English ↔ Korean".into(),
-            url: "https://huggingface.co/Helsinki-NLP/opus-mt-en-ko/resolve/main/".into(),
-            size_bytes: 300_000_000,
-            sha256: String::new(),
-            license: "CC-BY-4.0".into(),
-            requires_accept: false,
-        },
-        ModelSpec {
-            id: "marian-en-zh".into(),
-            family: "marian".into(),
-            label: "English ↔ Chinese".into(),
-            url: "https://huggingface.co/Helsinki-NLP/opus-mt-en-zh/resolve/main/".into(),
-            size_bytes: 300_000_000,
-            sha256: String::new(),
-            license: "CC-BY-4.0".into(),
-            requires_accept: false,
-        },
-        ModelSpec {
-            id: "marian-en-ar".into(),
-            family: "marian".into(),
-            label: "English ↔ Arabic".into(),
-            url: "https://huggingface.co/Helsinki-NLP/opus-mt-en-ar/resolve/main/".into(),
-            size_bytes: 300_000_000,
-            sha256: String::new(),
-            license: "CC-BY-4.0".into(),
-            requires_accept: false,
-        },
-        // Piper voices (offline TTS) - one per language
-        ModelSpec {
-            id: "piper-en_US-amy".into(),
-            family: "piper".into(),
-            label: "Amy · English (US)".into(),
-            url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/"
-                .into(),
-            size_bytes: 65_000_000,
-            sha256: String::new(),
-            license: "CC-BY-4.0".into(),
-            requires_accept: false,
-        },
-    ]
+    vec![]
 }
 
 /// Reject model IDs that could escape the models directory (path
@@ -384,33 +296,12 @@ mod tests {
     }
 
     #[test]
-    fn registry_includes_all_advertised_languages() {
-        let registry = model_registry();
-        for lang in [
-            "Spanish",
-            "French",
-            "German",
-            "Portuguese",
-            "Hindi",
-            "Japanese",
-            "Korean",
-            "Chinese (Simplified)",
-            "Arabic",
-        ] {
-            let id = model_id_for_pair(lang);
-            assert!(
-                registry.iter().any(|m| m.id == id),
-                "missing model for {lang}"
-            );
-        }
-    }
-
-    #[test]
-    fn marian_models_have_required_files() {
-        let registry = model_registry();
-        let marian = registry.iter().find(|m| m.id == "marian-en-es").unwrap();
-        assert_eq!(marian.family, "marian");
-        assert!(marian.size_bytes > 0);
-        assert!(!marian.url.is_empty());
+    fn registry_is_empty_until_local_inference_is_implemented() {
+        // See the comment on model_registry(): every previous entry
+        // requested files that 404 against upstream, and none of the
+        // families they belonged to (marian, piper) have a working
+        // local inference path yet. Guards against silently
+        // re-adding broken entries.
+        assert!(model_registry().is_empty());
     }
 }

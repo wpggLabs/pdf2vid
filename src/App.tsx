@@ -14,7 +14,6 @@ import { SettingsModal } from "./components/SettingsModal";
 import { TopBar } from "./components/TopBar";
 import { usePreviewVoice } from "./hooks/usePreviewVoice";
 import { useTimelinePlayback } from "./hooks/useTimelinePlayback";
-import { useTranslationModelPrompt } from "./hooks/useTranslationModelPrompt";
 import { captionLineAt, wrapCaptionLines } from "./lib/captions";
 import { useProjectState } from "./state/useProjectState";
 import { useWorkspaceUi } from "./state/useWorkspaceUi";
@@ -69,12 +68,6 @@ function App() {
       ensureOcr().catch(() => undefined);
     });
   }, []);
-
-  const modelPrompt = useTranslationModelPrompt(
-    project.translationProvider,
-    project.language,
-    setStatus,
-  );
 
   // Initial load + system status (project is hydrated by useProjectState;
   // here we load providers and system info that live outside the project).
@@ -299,16 +292,6 @@ function App() {
           className={`status-dot ${system.ffmpeg || system.ffmpegSidecarReady ? "ready" : "warn"}`}
         />
         <span>{status}</span>
-        {modelPrompt.neededModelId && (
-          <button
-            type="button"
-            className="status-action"
-            onClick={() => modelPrompt.triggerDownload(modelPrompt.neededModelId!)}
-            disabled={modelPrompt.downloading}
-          >
-            {modelPrompt.downloading ? "Downloading…" : "Download model"}
-          </button>
-        )}
         <span className="system-status">
           {system.platform} · FFmpeg{" "}
           {system.ffmpeg || system.ffmpegSidecarReady ? "ready" : "not found"}
