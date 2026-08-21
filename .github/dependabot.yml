@@ -5,6 +5,7 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    rebase-strategy: "disabled"
     groups:
       npm-minor-patch:
         update-types: ["minor", "patch"]
@@ -14,6 +15,7 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    rebase-strategy: "disabled"
     groups:
       cargo-minor-patch:
         update-types: ["minor", "patch"]
@@ -22,3 +24,5 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    rebase-strategy: "disabled"
