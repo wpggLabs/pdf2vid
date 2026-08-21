@@ -26,6 +26,10 @@ src-tauri/target/
 .env.*
 !.env.example
 
+# Local audit reports (project-root scratch output from audit tooling)
+codxeaudit*.md
+codexaudit*.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
