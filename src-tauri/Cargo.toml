@@ -46,7 +46,7 @@ serde_json = "1"
 # `tests/pdf_pipeline.rs` integration test to parse real PDF fixtures
 # without going through the JS runtime. Production PDF parsing still
 # runs in the frontend via `pdfjs-dist`.
-pdf-extract = "0.10"
+pdf-extract = "0.12"
 
 [[example]]
 name = "smoke"
